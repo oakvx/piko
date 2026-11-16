@@ -1,0 +1,46 @@
+name: Resolve Piko dependency lock candidates
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/lockgen.yml'
+      - 'scripts/ci/backend-windows.in'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Resolve real npm packages, Rust crates and Python Windows wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix apps/desktop --package-lock-only --ignore-scripts --no-audit --no-fund
+          cargo generate-lockfile --manifest-path apps/desktop/src-tauri/Cargo.toml
+          python -m pip install uv
+          uv pip compile scripts/ci/backend-windows.in --python-platform windows --python-version 3.11 --output-file scripts/ci/backend-windows.lock
+      - name: Emit audited, non-secret lockfiles for GitHub-backed commit
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+          for name, path in [
+              ("NPM", "apps/desktop/package-lock.json"),
+              ("CARGO", "apps/desktop/src-tauri/Cargo.lock"),
+              ("PYTHON", "scripts/ci/backend-windows.lock"),
+          ]:
+              data = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+              print(f"PIKO_LOCK_BEGIN:{name}", flush=True)
+              for index in range(0, len(data), 2500):
+                  print("PIKO_LOCK_CHUNK:" + data[index:index+2500], flush=True)
+              print(f"PIKO_LOCK_END:{name}", flush=True)
+          PY
