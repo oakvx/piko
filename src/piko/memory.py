@@ -25,8 +25,11 @@ class LocalMemory:
         """)
         self.connection.commit()
         # Treat interrupted work as failed, never resume actions automatically.
-        interrupted = (SessionState.OBSERVING, SessionState.ANALYZING,
-                       SessionState.PLANNING, SessionState.EXECUTING,
+        # Plans are deliberately not persisted; even an idle or reviewed session
+        # must not be reactivated after restart without a fresh authorization.
+        interrupted = (SessionState.IDLE, SessionState.OBSERVING,
+                       SessionState.ANALYZING, SessionState.PLANNING,
+                       SessionState.WAITING_FOR_USER, SessionState.EXECUTING,
                        SessionState.VERIFYING, SessionState.PAUSED)
         for row in self.connection.execute("SELECT data FROM sessions"):
             session = Session.model_validate_json(row[0])
