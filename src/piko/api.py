@@ -5,6 +5,7 @@ import asyncio
 import base64
 import binascii
 from contextlib import asynccontextmanager
+from datetime import datetime
 import os
 import secrets
 from pathlib import Path
@@ -88,11 +89,31 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     async def run_and_record(session_id: str):
         result = await agent.run(session_id)
+        # Pause is NOT a terminal outcome. Keep the Skill association until
+        # resumed execution actually completes/fails/cancels; otherwise history
+        # incorrectly records a failure and forgets the resumed session.
+        if result.state not in {
+            SessionState.COMPLETED, SessionState.FAILED, SessionState.CANCELLED,
+        }:
+            return result
         skill_slug = skill_runs.pop(session_id, None)
         if skill_slug:
-            # A passing session is evidence, not automatic Skill certification.
+            evidence = store.list_events(session_id)
+            start = next((event["timestamp"] for event in evidence
+                          if event["type"] == "session.executing"), None)
+            finish = next((event["timestamp"] for event in reversed(evidence)
+                           if event["type"] == f"session.{result.state.value}"), None)
+            wall_ms = None
+            if start is not None and finish is not None:
+                elapsed = datetime.fromisoformat(finish) - datetime.fromisoformat(start)
+                wall_ms = max(0, int(elapsed.total_seconds() * 1000))
+            verified_count = sum(event["type"] == "action.verified" for event in evidence)
+            # Sanitize evidence: never write action texts, selectors, model
+            # plans, sensitive inputs or screenshots into the Skill history.
             skills.record_run(skill_slug, session_id,
-                              succeeded=result.state == SessionState.COMPLETED)
+                              succeeded=result.state == SessionState.COMPLETED,
+                              wall_duration_ms=wall_ms,
+                              verified_actions=verified_count)
         return result
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
