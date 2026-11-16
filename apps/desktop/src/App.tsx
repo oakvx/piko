@@ -154,6 +154,7 @@ export default function App() {
   const [chosenVision, setChosenVision] = useState('');
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillConsent, setSkillConsent] = useState(false);
+  const [skillParameterValues, setSkillParameterValues] = useState<Record<string, string>>({});
   const [teachExecutable, setTeachExecutable] = useState('');
   const [teachConsent, setTeachConsent] = useState(false);
   const [teachSeconds, setTeachSeconds] = useState(30);
@@ -388,7 +389,13 @@ export default function App() {
   const reviewSavedSkill = (name: string) => {
     if (!client || !skillConsent) return;
     void attempt('skill-review', async () => {
-      const prepared = await client.reviewSkill(name);
+      const inputs = skills.find(item => item.name === name)?.parameters ?? [];
+      const parameters = Object.fromEntries(inputs.map(key =>
+        [key, skillParameterValues[`${name}:${key}`] ?? '']));
+      if (inputs.some(key => !parameters[key])) {
+        throw new Error('Enter every declared Skill parameter before review.');
+      }
+      const prepared = await client.reviewSkill(name, parameters);
       await refresh();
       setSession(prepared);
       setFrame(null);
@@ -489,8 +496,9 @@ export default function App() {
 
       {lens === 'skills' && <section className="library-board"><div className="panel-top"><Kicker index="A">Procedural library</Kicker><span className="panel-annotation">LOCAL FILES ONLY</span></div><div className="library-summary"><div><h2>{skills.length.toString().padStart(2, '0')}<span> / saved drafts and skills</span></h2><p>Every item keeps its verification status. Drafts have not been proven to generalize.</p></div><button type="button" onClick={() => client && invoke('skills', async () => { setSkills(await client.skills()); })} disabled={!!busy || !connected}><Mark name="refresh" size={16} /> Reload library</button></div><label htmlFor="skill-import-zip">Import locally reviewed Skill archive (.zip)</label><input id="skill-import-zip" type="file" accept=".zip" disabled={!!busy || !connected} onChange={importSkillArchive} />
         <label className="consent-line"><input type="checkbox" checked={skillConsent} disabled={!!busy || !connected} onChange={e => setSkillConsent(e.target.checked)} /><span>I authorize Piko to inspect the foreground application before reviewing a saved Skill. Execution requires a second approval.</span></label>{skills.length ? <div className="library-list">{skills.map(item => <article key={item.name} className="library-card"><div className="library-glyph">✳</div><div><span className="library-state">{item.status.toUpperCase()} / {item.version}</span><h3>{item.name}</h3><p>{item.description}</p><span className="library-info">{item.executable} · {item.actions} actions</span>
+            {!!item.parameters?.length && <div className="skill-param-grid" aria-label="Skill input parameters">{item.parameters.map(parameter => <label className="skill-param-control" key={parameter} htmlFor={`skill-param-${item.name}-${parameter}`}><span>{parameter}</span><input id={`skill-param-${item.name}-${parameter}`} type="text" autoComplete="off" maxLength={1000} placeholder={`Value for ${parameter}`} value={skillParameterValues[`${item.name}:${parameter}`] ?? ''} onChange={e => setSkillParameterValues(previous => ({ ...previous, [`${item.name}:${parameter}`]: e.target.value }))} disabled={!!busy || !connected} /></label>)}</div>}
             <div className="execution-controls">
-              <button type="button" className="system-secondary" disabled={!skillConsent || !!busy || !connected} onClick={() => reviewSavedSkill(item.name)}>Review procedure <Mark name="arrow" size={15} /></button>
+              <button type="button" className="system-secondary" disabled={!skillConsent || !!busy || !connected || (item.parameters ?? []).some(parameter => !(skillParameterValues[`${item.name}:${parameter}`] ?? ''))} onClick={() => reviewSavedSkill(item.name)}>Review procedure <Mark name="arrow" size={15} /></button>
               <button type="button" className="system-secondary" disabled={!!busy || !connected} onClick={() => exportSkillArchive(item.name)}>Export ZIP</button>
               <button type="button" className="system-secondary" disabled={!!busy || !connected || item.status !== 'draft'} onClick={() => rollbackSkillDraft(item.name)}>Rollback draft</button>
               <button type="button" className="system-secondary" disabled={!!busy || !connected} onClick={() => client && invoke('skill-history', async () => {
