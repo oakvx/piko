@@ -30,9 +30,10 @@ This document tracks **merged remediation from PR #6 and follow-up release harde
 - Windows installer version stamping updates only the local package versions in package manifests and locks.
 - Production npm audit, RustSec audit and pinned-Windows Python pip-audit are mandatory CI checks. Fix actual dependency vulnerabilities; never suppress audit failures for a release.
 - GitHub's dependency-review-action could not run because its repository dependency graph is unavailable, so independent scans are used instead.
+- A dependency inventory SBOM (CycloneDX 1.6) is generated deterministically from the checked-in npm, Cargo and Windows Python locks for each source SHA. Main preview publication is now gated on SBOM reproduction; the JSON inventory is published alongside installer/checksum artifacts. It includes lock metadata and npm-reported licenses when available, but is **not** a comprehensive license compliance decision.
 - The previous main-merge run 43938456193 failed only when the RustSec action attempted to write a GitHub Check with a read-only workflow token, despite reporting zero RustSec vulnerabilities. The scanner now runs directly against the locked Cargo dependency graph with a failing exit code on discovered vulnerabilities; the Check API permission is deliberately not granted.
 - All official GitHub Actions workflow references are pinned to 40-character commit SHAs resolved from upstream v4/v5 tags, with a regression test rejecting moving tags.
-- **Still limited:** Python lock pins versions without wheel hash verification, and platform-specific SBOM/license compliance needs additional independent review. RustSec advisory warnings about unmaintained or unsound packages are reported even when no vulnerabilities cause audit failure.
+- **Still limited:** Python lock pins versions without wheel hash verification; platform-specific SBOM analysis and full license compliance review remain open. RustSec advisory warnings about unmaintained or unsound packages are reported even when no vulnerabilities cause audit failure.
 
 ## Issue #4 — End-to-end Windows and Ollama acceptance
 
