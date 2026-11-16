@@ -153,6 +153,10 @@ export default function App() {
   const [models, setModels] = useState<ModelInfo[] | null>(null);
   const [modelSelection, setModelSelection] = useState<{ reasoning: string | null; vision: string | null }>({ reasoning: null, vision: null });
   const [modelError, setModelError] = useState('');
+  const [setupState, setSetupState] = useState<Awaited<ReturnType<PikoClient['setup']>> | null>(null);
+  const [setupReasoning, setSetupReasoning] = useState('');
+  const [setupVision, setSetupVision] = useState('');
+  const [setupConsent, setSetupConsent] = useState(false);
   const [chosenReasoning, setChosenReasoning] = useState('');
   const [chosenVision, setChosenVision] = useState('');
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -278,6 +282,44 @@ export default function App() {
       setSelectedWindow(found.length === 1 ? String(found[0].window_handle) : '');
       if (found.length === 0) throw new Error('No visible window for this executable. Open the app and try again.');
       setNotice(found.length === 1 ? 'Window found. Piko can inspect it without keeping it in front.' : 'Choose the exact authorized window. Multiple windows share this executable.');
+    });
+  };
+
+  useEffect(() => {
+    if (!client || !connected) return;
+    let active = true;
+    const check = async () => {
+      try {
+        const state = await client.setup();
+        if (!active) return;
+        setSetupState(previous => {
+          if (previous?.stage !== 'ready' && state.stage === 'ready') {
+            void client.models().then(result => {
+              if (active) {
+                setModels(result.installed);
+                setModelSelection({ reasoning: result.reasoning, vision: result.vision });
+                setModelError('');
+              }
+            }).catch(() => {});
+          }
+          return state;
+        });
+        setSetupReasoning(old => old || state.hardware.reasoning_model);
+        setSetupVision(old => old || state.hardware.vision_model || 'none');
+      } catch { /* setup status never blocks the main Workfield */ }
+    };
+    void check();
+    const timer = window.setInterval(() => { void check(); }, 2600);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [client, connected]);
+
+  const installLocalAI = () => {
+    if (!client || !setupConsent || !setupReasoning) return;
+    void attempt('setup-local-ai', async () => {
+      setSetupState(await client.installLocalAI(setupReasoning,
+        setupVision === 'none' ? null : setupVision));
+      setNotice('Local installation started. Piko checks the official signature and downloads only the models selected.');
+      setSetupConsent(false);
     });
   };
 
@@ -489,6 +531,7 @@ export default function App() {
 
       {error && <div className="message-banner message-banner--error" role="alert"><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError('')}><Mark name="close" size={15} /></button></div>}
       {notice && <div className="message-banner" role="status"><span>{notice}</span><button type="button" aria-label="Dismiss notice" onClick={() => setNotice('')}><Mark name="close" size={15} /></button></div>}
+      {connected && setupState && !setupState.running && setupState.stage !== 'ready' && !modelSelection.reasoning && <div className="message-banner" role="status">Local AI is not configured. Piko can select a model for this computer and install Ollama on first run. <button type="button" onClick={() => setLens('system')}>Set up local AI</button></div>}
       {!connected && <div className="message-banner message-banner--error" role="alert">Runtime unavailable. No new operations can be sent. <button type="button" onClick={() => void refresh()}>Retry connection</button></div>}
 
       {lens === 'work' && <>
@@ -563,7 +606,7 @@ export default function App() {
               })}>History</button>
             </div></div></article>)}</div> : <div className="library-empty"><span className="library-star">✳</span><h3>Nothing here. Yet.</h3><p>Once you save a reviewed route, its Markdown Skill draft will appear here.</p><button type="button" onClick={() => setLens('work')}>Compose a route <Mark name="arrow" size={17} /></button></div>}</section>}
 
-      {lens === 'system' && <div className="system-board"><section className="system-card"><Kicker index="01">Runtime</Kicker><h2>Local by design.</h2><div className="system-property"><span>Connection</span><strong>{connected ? 'Loopback / active' : 'Disconnected'}</strong></div><div className="system-property"><span>Transport</span><strong>127.0.0.1:{backendPort}</strong></div><div className="system-property"><span>Host platform</span><strong>{health?.platform || 'Unavailable'}</strong></div><div className="system-property"><span>Active input sessions</span><strong>{health ? health.active_session_count : 'Unknown'}</strong></div><button type="button" className="system-secondary" onClick={() => { setToken(''); setHealth(null); setFrame(null); setSession(null); setConnected(false); }}><Mark name="close" size={16} /> Disconnect this window</button></section>
+      {lens === 'system' && <div className="system-board"><section className="system-card setup-card"><Kicker index="00">First-run setup</Kicker><h2>Intelligence, installed locally.</h2><p>Piko recommends models using RAM, CPU and detected NVIDIA VRAM. You can change them before downloading. No screenshots or prompts leave your computer.</p>{setupState ? <><div className="system-property"><span>RAM / CPU</span><strong>{setupState.hardware.ram_gb} GB / {setupState.hardware.cpu_cores} cores</strong></div><div className="system-property"><span>GPU VRAM</span><strong>{setupState.hardware.gpu_vram_gb === null ? 'Not detected' : `${setupState.hardware.gpu_vram_gb} GB`}</strong></div><div className="system-property"><span>Free disk</span><strong>{setupState.hardware.free_disk_gb} GB</strong></div><p className="setup-hint">{setupState.hardware.note}</p><label htmlFor="setup-reasoning">Recommended reasoning model</label><select id="setup-reasoning" value={setupReasoning} onChange={e => { setSetupReasoning(e.target.value); setSetupConsent(false); }} disabled={setupState.running}><option value="qwen2.5:1.5b">Qwen 2.5 · 1.5B (light)</option><option value="qwen3:4b">Qwen 3 · 4B (balanced)</option><option value="qwen3:8b">Qwen 3 · 8B (powerful)</option></select><label htmlFor="setup-vision">Local vision model</label><select id="setup-vision" value={setupVision} onChange={e => { setSetupVision(e.target.value); setSetupConsent(false); }} disabled={setupState.running}><option value="none">None (text / UIA only)</option><option value="qwen3-vl:2b-instruct">Qwen 3 VL · 2B (screen analysis)</option></select><label className="consent-line"><input type="checkbox" checked={setupConsent} onChange={e => setSetupConsent(e.target.checked)} disabled={setupState.running} /><span>Install the official signed Ollama runtime if missing, and download the selected models from the Ollama registry. This requires internet access, disk space and may use several GB.</span></label><button type="button" className="primary-button" disabled={!setupConsent || setupState.running || !!busy} onClick={installLocalAI}>{setupState.running ? 'Installing local AI…' : 'Install recommended local AI'} <Mark name="arrow" /></button><p className="setup-hint">Stage: {setupState.stage} {setupState.running ? `· ${setupState.progress}%` : ''} · Estimated model data {setupState.hardware.estimate_download_gb} GB</p>{setupState.error && <p className="inline-error" role="alert">{setupState.error}</p>}{setupState.stage === 'ready' && <p className="setup-ready">Local inference ready: {setupState.reasoning}</p>}</> : <p>Checking local system…</p>}</section><section className="system-card"><Kicker index="01">Runtime</Kicker><h2>Local by design.</h2><div className="system-property"><span>Connection</span><strong>{connected ? 'Loopback / active' : 'Disconnected'}</strong></div><div className="system-property"><span>Transport</span><strong>127.0.0.1:{backendPort}</strong></div><div className="system-property"><span>Host platform</span><strong>{health?.platform || 'Unavailable'}</strong></div><div className="system-property"><span>Active input sessions</span><strong>{health ? health.active_session_count : 'Unknown'}</strong></div><button type="button" className="system-secondary" onClick={() => { setToken(''); setHealth(null); setFrame(null); setSession(null); setConnected(false); }}><Mark name="close" size={16} /> Disconnect this window</button></section>
         <section className="system-card"><Kicker index="02">Inference</Kicker><h2>On-device intelligence.</h2><div className="system-property"><span>Reasoning model</span><strong>{modelSelection.reasoning || 'Not reported'}</strong></div><div className="system-property"><span>Vision model</span><strong>{modelSelection.vision || 'Not configured'}</strong></div><div className="system-property"><span>Ollama discovery</span><strong>{modelError ? 'Unavailable' : models === null ? 'Checking…' : `${models.length} installed`}</strong></div>{modelError && <p className="inline-error">{modelError}</p>}<div className="model-list">{models?.map(model => <div key={model.name}><strong>{model.name}</strong><small>{model.details?.parameter_size || 'Parameter size not reported'}</small></div>)}</div>
           {models && models.length > 0 && <div className="model-choice">
             <label htmlFor="reasoning-model">Reasoning model</label>
