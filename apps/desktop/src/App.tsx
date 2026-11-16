@@ -140,6 +140,8 @@ export default function App() {
   const [lens, setLens] = useState<Lens>('work');
   const [objective, setObjective] = useState('');
   const [executable, setExecutable] = useState('');
+  const [windowCandidates, setWindowCandidates] = useState<Array<{ window_handle: number; title: string; process_id: number }>>([]);
+  const [selectedWindow, setSelectedWindow] = useState('');
   const [consent, setConsent] = useState(false);
   const [reviewed, setReviewed] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
@@ -268,12 +270,32 @@ export default function App() {
     return () => { active = false; };
   }, [client, connected]);
 
+  const findTargetWindows = () => {
+    if (!client || !consent || !executable.trim()) return;
+    void attempt('find-windows', async () => {
+      const found = await client.windows(executable.trim());
+      setWindowCandidates(found);
+      setSelectedWindow(found.length === 1 ? String(found[0].window_handle) : '');
+      if (found.length === 0) throw new Error('No visible window for this executable. Open the app and try again.');
+      setNotice(found.length === 1 ? 'Window found. Piko can inspect it without keeping it in front.' : 'Choose the exact authorized window. Multiple windows share this executable.');
+    });
+  };
+
   const startRoute = (event: FormEvent) => {
     event.preventDefault();
     if (!client || !consent || !objective.trim() || !executable.trim()) return;
     void attempt('plan', async () => {
       setFrame(null); setFocusedTarget(null); setEvents([]); setReviewed(false);
-      const created = await client.createSession(objective.trim(), executable.trim());
+      // Discover only the executable explicitly named and authorized by the user.
+      // Never guess which of several Firefox windows should be controlled.
+      const candidates = await client.windows(executable.trim());
+      setWindowCandidates(candidates);
+      const selected = candidates.find(w => String(w.window_handle) === selectedWindow);
+      const target = selected ?? (candidates.length === 1 ? candidates[0] : null);
+      if (!target) throw new Error(candidates.length === 0
+        ? 'No visible window matches this executable. Open it first.'
+        : 'Several windows match. Select one in the target list before composing a route.');
+      const created = await client.createSession(objective.trim(), executable.trim(), target.window_handle);
       setSession(created);
       await client.grant(created.app_executable, 'limited', created.id);
       const planned = await client.plan(created.id);
@@ -476,8 +498,8 @@ export default function App() {
             <form onSubmit={startRoute} className="intent-form">
               <label htmlFor="objective">What should Piko accomplish?</label>
               <textarea id="objective" rows={4} maxLength={500} value={objective} onChange={e => setObjective(e.target.value)} placeholder="For example: enter a name in the demo app, save it and confirm the result." disabled={isBlockedByWork} required />
-              <div className="intent-target"><label htmlFor="executable">Inside this application</label><div className="target-field"><span className="target-bullet" /><input id="executable" placeholder="application.exe" value={executable} onChange={e => { setExecutable(e.target.value); setConsent(false); }} disabled={isBlockedByWork} required /></div><small>Foreground app · exact executable name</small></div>
-              <label className="consent-line"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={isBlockedByWork} /><span>I authorize Piko to inspect and perform ordinary actions inside this application for this session.</span></label>
+              <div className="intent-target"><label htmlFor="executable">Inside this application</label><div className="target-field"><span className="target-bullet" /><input id="executable" placeholder="application.exe" value={executable} onChange={e => { setExecutable(e.target.value); setConsent(false); setWindowCandidates([]); setSelectedWindow(''); }} disabled={isBlockedByWork} required /></div><small>Any open window · exact executable name (e.g. firefox.exe)</small><button type="button" className="target-discover" onClick={findTargetWindows} disabled={!consent || !executable.trim() || isBlockedByWork}>Find application windows</button>{windowCandidates.length > 0 && <select className="target-picker" aria-label="Authorized application window" value={selectedWindow} onChange={e => setSelectedWindow(e.target.value)} disabled={isBlockedByWork}><option value="">{windowCandidates.length > 1 ? 'Select the correct window' : 'Auto-selected window'}</option>{windowCandidates.map(item => <option key={item.window_handle} value={item.window_handle}>{item.title || item.process_id} · PID {item.process_id}</option>)}</select>}</div>
+              <label className="consent-line"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={isBlockedByWork} /><span>I authorize Piko to inspect this selected application in the background and, after I approve the route, activate its exact window to perform actions. Other applications are excluded.</span></label>
               <button className="primary-button" type="submit" disabled={!consent || !objective.trim() || !executable.trim() || isBlockedByWork || !connected}><span>{busy === 'plan' ? 'Composing route…' : 'Compose a route'}</span><Mark name="arrow" /></button>
             </form>
             <div className="intent-divider" />
