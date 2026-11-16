@@ -1,9 +1,14 @@
-# Explicitly opt-in, resource-intensive CPU inference test on hosted Windows.
+# Resource-intensive CPU inference test on hosted Windows: run for relevant main edits or manually.
 # This proves real local Ollama inference on a Windows Server runner ONLY.
 # It never substitutes for Win10/11 clean-VM or physical-input acceptance.
-name: Real Ollama inference (Windows, opt-in)
+name: Real Ollama inference (Windows)
 
 on:
+  push:
+    branches: ['main']
+    paths:
+      - '.github/workflows/real-ollama.yml'
+      - 'tests/real/test_ollama_inference.py'
   workflow_dispatch:
 
 permissions:
