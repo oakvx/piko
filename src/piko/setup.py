@@ -43,8 +43,22 @@ def hardware_profile() -> dict:
         cpu = os.cpu_count() or 1
     gpu_vram_gb = None
     try:
+        gpu_probe = shutil.which("nvidia-smi")
+        if gpu_probe is None:
+            raise FileNotFoundError("NVIDIA telemetry CLI absent")
+        # Do not execute an arbitrary nvidia-smi dropped into Piko's working
+        # directory or a user-writable PATH component.
+        if sys.platform == "win32":
+            allowed_roots = [
+                Path(os.environ.get("ProgramFiles", r"C:\\Program Files")),
+                Path(os.environ.get("ProgramFiles(x86)", r"C:\\Program Files (x86)")),
+                Path(os.environ.get("SystemRoot", r"C:\\Windows")),
+            ]
+            resolved = Path(gpu_probe).resolve()
+            if not any(resolved.is_relative_to(root.resolve()) for root in allowed_roots):
+                raise FileNotFoundError("Untrusted NVIDIA CLI location")
         output = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            [gpu_probe, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5, check=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         ).stdout
@@ -77,12 +91,14 @@ def hardware_profile() -> dict:
 
 
 def find_ollama_binary() -> Path | None:
-    found = shutil.which("ollama")
-    choices = [Path(found)] if found else []
+    choices = []
     if sys.platform == "win32":
         home = Path(os.environ.get("LOCALAPPDATA", Path.home()))
         choices.extend([home / "Programs" / "Ollama" / "ollama.exe",
                         home / "Ollama" / "ollama.exe"])
+    found = shutil.which("ollama")
+    if found:
+        choices.append(Path(found))
     return next((item for item in choices if item.is_file()), None)
 
 
