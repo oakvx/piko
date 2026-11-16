@@ -22,7 +22,7 @@ from piko.ollama import OllamaProvider
 from piko.orchestrator import Agent
 from piko.permissions import PermissionManager
 from piko.skills import SkillLibrary
-from piko.setup import SetupCoordinator
+from piko.setup import SetupCoordinator, load_model_selection, save_model_selection
 from piko.teach import TeachRecorder
 from piko.windows import WindowsDesktop
 
@@ -96,17 +96,26 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
                desktop=None, inference=None, root: Path | None = None) -> FastAPI:
     if len(token) < 24:
         raise ValueError("Control-plane token must be at least 24 characters")
-    store = LocalMemory((root or data_root()) / "piko.db")
+    base_root = root or data_root()
+    store = LocalMemory(base_root / "piko.db")
     permissions = PermissionManager()
     desktop = desktop or WindowsDesktop()
-    inference = inference or OllamaProvider(reasoning_model=reasoning_model, vision_model=vision_model)
+    stored_reasoning, stored_vision = load_model_selection(base_root)
+    inference = inference or OllamaProvider(
+        reasoning_model=reasoning_model or stored_reasoning or "",
+        vision_model=vision_model if vision_model is not None else stored_vision,
+    )
     agent = Agent(desktop, inference, store, permissions,
-                  vision=inference.interpret if vision_model else None)
-    setup = SetupCoordinator(inference, lambda vision: setattr(
-        agent, "vision", inference.interpret if vision else None))
+                  vision=inference.interpret if getattr(inference, "vision_model", None) else None)
+
+    def selected_local_models(vision: str | None) -> None:
+        agent.vision = inference.interpret if vision else None
+        save_model_selection(base_root, inference.reasoning_model, vision)
+
+    setup = SetupCoordinator(inference, selected_local_models)
     coach = LocalScreenCoach(desktop, inference)
-    skills = SkillLibrary((root or data_root()) / "skills")
-    teach = TeachRecorder(desktop, (root or data_root()) / "demonstrations")
+    skills = SkillLibrary(base_root / "skills")
+    teach = TeachRecorder(desktop, base_root / "demonstrations")
     running: dict[str, asyncio.Task] = {}
     skill_runs: dict[str, str] = {}
 
@@ -239,6 +248,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         inference.reasoning_model = request.reasoning_model
         inference.vision_model = request.vision_model
         agent.vision = inference.interpret if request.vision_model else None
+        save_model_selection(base_root, request.reasoning_model, request.vision_model)
         return {"reasoning": inference.reasoning_model, "vision": inference.vision_model}
 
     @app.post("/permissions", dependencies=[Depends(auth)])
