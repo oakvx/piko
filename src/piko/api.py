@@ -28,6 +28,8 @@ from piko.windows import WindowsDesktop
 class CreateSession(BaseModel):
     objective: str = Field(min_length=1, max_length=500)
     executable: str
+    target_window_handle: int | None = Field(default=None, ge=1)
+    allow_activate: bool = False
 
 
 class GrantRequest(BaseModel):
@@ -187,10 +189,24 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         permissions.revoke(exe)
         return {"revoked": exe}
 
+    @app.get("/windows", dependencies=[Depends(auth)])
+    async def target_windows(executable: str):
+        try:
+            if not executable or "/" in executable or "\\\\" in executable or not executable.lower().endswith(".exe"):
+                raise ValueError("Use a single executable basename such as firefox.exe")
+            enumerate_windows = getattr(desktop, "list_windows", None)
+            if enumerate_windows is None:
+                return []
+            return await asyncio.to_thread(enumerate_windows, executable)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/sessions", dependencies=[Depends(auth)])
     async def create_session(request: CreateSession):
         try:
-            return agent.create(request.objective, request.executable)
+            return agent.create(request.objective, request.executable,
+                                target_window_handle=request.target_window_handle,
+                                allow_activate=request.allow_activate)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
