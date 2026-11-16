@@ -3,7 +3,7 @@ import { invoke as tauriInvoke, isTauri } from '@tauri-apps/api/core';
 import type { FormEvent, ReactNode } from 'react';
 import { PikoClient } from './client';
 import PikoGlyph from './PikoGlyph';
-import type { AgentEvent, AgentState, Demonstration, Health, Lens, ModelInfo, Observation, Session, Skill } from './types';
+import type { AgentEvent, AgentState, Demonstration, Health, Lens, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
 
 const stateText: Record<AgentState, string> = {
   idle: 'Ready to observe', observing: 'Reading the desktop', analyzing: 'Interpreting',
@@ -159,6 +159,10 @@ export default function App() {
   const [teachSeconds, setTeachSeconds] = useState(30);
   const [recording, setRecording] = useState(false);
   const [demonstration, setDemonstration] = useState<Demonstration | null>(null);
+  const [teachAnalysis, setTeachAnalysis] = useState<TeachAnalysis | null>(null);
+  const [teachPlanJson, setTeachPlanJson] = useState('');
+  const [teachSlug, setTeachSlug] = useState('');
+  const [teachDescription, setTeachDescription] = useState('');
   const [slug, setSlug] = useState('');
   const [skillDescription, setSkillDescription] = useState('');
 
@@ -280,14 +284,50 @@ export default function App() {
     void attempt('teach-start', async () => {
       await client.grant(teachExecutable.trim(), 'observe', 'teach');
       const result = await client.startTeach(teachExecutable.trim(), teachSeconds);
-      setRecording(result.recording); setDemonstration(null);
-      setNotice('Recording authorized observations. Raw input events are not supported yet.');
+      setRecording(result.recording); setDemonstration(null); setTeachAnalysis(null);
+      setNotice('Recording scoped observations and permitted structural input events. Typed characters are excluded.');
     });
   };
 
   const stopDemo = () => {
     if (!client) return;
     void attempt('teach-stop', async () => { setDemonstration(await client.stopTeach()); setRecording(false); });
+  };
+
+  const analyzeDemonstration = () => {
+    if (!client || !demonstration) return;
+    void attempt('teach-analysis', async () => {
+      const analysis = await client.analyzeTeach(demonstration.id);
+      setTeachAnalysis(analysis);
+      const actions = analysis.steps.filter(step => step.automation_id).map(step => ({
+        kind: 'ui.click',
+        automation_id: step.automation_id,
+        text: null,
+        keys: [],
+        timeout_seconds: 5,
+        expected: {
+          automation_id: step.automation_id,
+          property: 'text_equals',
+          value: 'REPLACE_WITH_OBSERVED_OUTCOME',
+        },
+      }));
+      setTeachPlanJson(JSON.stringify({
+        objective: 'Describe the demonstrated outcome',
+        explanation: 'User-reviewed and corrected procedure from a Teach recording',
+        actions,
+      }, null, 2));
+    });
+  };
+
+  const saveCorrectedDemonstration = (event: FormEvent) => {
+    event.preventDefault();
+    if (!client || !demonstration || !teachAnalysis) return;
+    void attempt('teach-correction', async () => {
+      const plan = JSON.parse(teachPlanJson) as Plan;
+      await client.saveTeachDraft(demonstration.id, teachSlug, teachDescription, plan);
+      setSkills(await client.skills());
+      setNotice('Corrected procedure saved as a DRAFT. Run it under a separate approval to test.');
+    });
   };
 
   const storeDraft = (event: FormEvent) => {
@@ -383,8 +423,20 @@ export default function App() {
 
       {lens === 'teach' && <div className="mode-layout teach-layout">
         <div className="teach-stage"><div className="panel-top"><Kicker index="A">Demonstration studio</Kicker><span className={`record-indicator${recording ? ' record-indicator--active' : ''}`}><span />{recording ? 'CAPTURING' : 'NOT RECORDING'}</span></div><div className="teach-visual"><span className="teach-visual-grid" /><div className="teach-persona"><PikoGlyph state={recording ? 'observing' : 'idle'} /></div><div className="teach-wave teach-wave-a" /><div className="teach-wave teach-wave-b" /><span className="teach-mode-caption">{recording ? 'AUTHORIZED WINDOW OBSERVATION' : 'WAITING FOR YOUR DEMONSTRATION'}</span></div>
-          <div className="teach-limits"><Kicker>What this version records</Kicker><p>Opt-in foreground screenshots and UI Automation observations. It does <strong>not</strong> capture keyboard or mouse events, infer a procedure, or generate a learned Skill yet. Sensitive windows are excluded.</p></div>
-          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p></div><button type="button" disabled={!!busy} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
+          <div className="teach-limits"><Kicker>What this version records</Kicker><p>Opt-in foreground screenshots, UIA observations and permitted click/scroll/special-key events on Windows. Raw typed characters are excluded. Inferred steps are tentative until reviewed and tested.</p></div>
+          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p><button type="button" className="system-secondary" disabled={!!busy || recording} onClick={analyzeDemonstration}>Analyze evidence <Mark name="arrow" size={15} /></button></div><button type="button" disabled={!!busy || recording} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); setTeachAnalysis(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
+          {teachAnalysis && <section className="skill-seed" aria-label="Teach correction editor">
+            <div><Kicker>Evidence → correction</Kicker><h3>{teachAnalysis.input_events} permitted events · {teachAnalysis.steps.length} candidate steps</h3><p>{teachAnalysis.uncertainties.join('. ')}. Unresolved steps must be supplied manually; this is not autonomous learning yet.</p></div>
+            <form className="skill-form" onSubmit={saveCorrectedDemonstration}>
+              <label htmlFor="teach-draft-slug">Draft name</label>
+              <input id="teach-draft-slug" pattern="[a-z0-9][a-z0-9-]{0,63}" value={teachSlug} onChange={e => setTeachSlug(e.target.value)} required />
+              <label htmlFor="teach-draft-desc">Description</label>
+              <input id="teach-draft-desc" value={teachDescription} onChange={e => setTeachDescription(e.target.value)} required />
+              <label htmlFor="teach-corrected-plan">Correct each selector, objective and expected outcome (strict JSON)</label>
+              <textarea id="teach-corrected-plan" rows={10} value={teachPlanJson} onChange={e => setTeachPlanJson(e.target.value)} required />
+              <button type="submit" disabled={!!busy || !connected || teachAnalysis.input_events < 1}>Save reviewed draft <Mark name="plus" size={15} /></button>
+            </form>
+          </section>}
         </div>
         <section className="teach-controls"><div className="panel-top"><Kicker index="B">Your recording boundary</Kicker></div><h2>You show.<br /><em>Piko observes.</em></h2><form onSubmit={createDemo}><label htmlFor="teach-app">Approved foreground application</label><input id="teach-app" placeholder="application.exe" value={teachExecutable} onChange={e => { setTeachExecutable(e.target.value); setTeachConsent(false); }} disabled={recording || !!busy} required /><label htmlFor="teach-duration">Maximum duration</label><div className="duration-choices" id="teach-duration">{[15, 30, 60, 120].map(seconds => <button key={seconds} type="button" aria-pressed={teachSeconds === seconds} className={teachSeconds === seconds ? 'duration--chosen' : ''} onClick={() => setTeachSeconds(seconds)} disabled={recording || !!busy}>{seconds}s</button>)}</div><label className="consent-line"><input type="checkbox" checked={teachConsent} onChange={e => setTeachConsent(e.target.checked)} disabled={recording || !!busy} /><span>I authorize time-limited recording of this foreground application.</span></label>{recording ? <button className="primary-button primary-button--stop" type="button" disabled={!!busy} onClick={stopDemo}><Mark name="stop" /> Stop watching</button> : <button className="primary-button" type="submit" disabled={!teachConsent || !teachExecutable.trim() || isBlockedByWork || !connected}><Mark name="eye" /> Watch me</button>}</form></section>
       </div>}
