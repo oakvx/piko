@@ -370,12 +370,22 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         except (ValueError, RuntimeError, PermissionError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    def teach_recording_summary(result: dict) -> dict:
+        stopped = [
+            event["reason"] for event in result["events"]
+            if event.get("type") == "capture.stopped"
+        ]
+        return {
+            "id": result["id"], "frames": result["frames"],
+            "recording": False, "limitations": result["limitations"],
+            "stopped_reason": stopped[-1] if stopped else None,
+        }
+
     @app.get("/teach/latest", dependencies=[Depends(auth)])
     async def teach_latest():
         try:
             result = teach.get_latest()
-            return {"id": result["id"], "frames": result["frames"],
-                    "recording": False, "limitations": result["limitations"]}
+            return teach_recording_summary(result)
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -383,8 +393,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     async def teach_stop():
         try:
             result = await teach.stop()
-            return {"id": result["id"], "frames": result["frames"], "recording": False,
-                    "limitations": result["limitations"]}
+            return teach_recording_summary(result)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

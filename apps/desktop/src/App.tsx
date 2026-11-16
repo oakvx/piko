@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke as tauriInvoke, isTauri } from '@tauri-apps/api/core';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { PikoClient } from './client';
@@ -160,6 +160,7 @@ export default function App() {
   const [teachConsent, setTeachConsent] = useState(false);
   const [teachSeconds, setTeachSeconds] = useState(30);
   const [recording, setRecording] = useState(false);
+  const previousTeachRecording = useRef(false);
   const [demonstration, setDemonstration] = useState<Demonstration | null>(null);
   const [teachAnalysis, setTeachAnalysis] = useState<TeachAnalysis | null>(null);
   const [teachPlanJson, setTeachPlanJson] = useState('');
@@ -219,6 +220,19 @@ export default function App() {
     if (!client) return;
     try {
       const [status, history, teach] = await Promise.all([client.health(), client.sessions(), client.teachStatus()]);
+      if (previousTeachRecording.current && !teach.recording) {
+        // A permission revoke, a window switch or a duration timeout can
+        // stop Teach without the user clicking the Stop button. Recover its
+        // completed manifest instead of leaving the review editor empty.
+        void client.latestTeach().then(result => {
+          setDemonstration(result);
+          if (result.stopped_reason) {
+            setNotice(`Teach stopped safely: ${result.stopped_reason.replaceAll('_', ' ')}.`);
+          }
+        }).catch(() => {});
+        setTeachConsent(false);
+      }
+      previousTeachRecording.current = teach.recording;
       setConnected(true); setHealth(status); setSessions(history); setRecording(teach.recording);
       setSession(current => current ? history.find(s => s.id === current.id) ?? current : history[0] ?? null);
     } catch { setConnected(false); }
@@ -287,6 +301,7 @@ export default function App() {
     void attempt('teach-start', async () => {
       await client.grant(teachExecutable.trim(), 'observe', 'teach');
       const result = await client.startTeach(teachExecutable.trim(), teachSeconds);
+      previousTeachRecording.current = result.recording;
       setRecording(result.recording); setDemonstration(null); setTeachAnalysis(null);
       setNotice('Recording scoped observations and permitted structural input events. Typed characters are excluded.');
     });
@@ -294,7 +309,12 @@ export default function App() {
 
   const stopDemo = () => {
     if (!client) return;
-    void attempt('teach-stop', async () => { setDemonstration(await client.stopTeach()); setRecording(false); });
+    void attempt('teach-stop', async () => {
+      setDemonstration(await client.stopTeach());
+      previousTeachRecording.current = false;
+      setRecording(false);
+      setTeachConsent(false);
+    });
   };
 
   const analyzeDemonstration = () => {
@@ -481,7 +501,7 @@ export default function App() {
       {lens === 'teach' && <div className="mode-layout teach-layout">
         <div className="teach-stage"><div className="panel-top"><Kicker index="A">Demonstration studio</Kicker><span className={`record-indicator${recording ? ' record-indicator--active' : ''}`}><span />{recording ? 'CAPTURING' : 'NOT RECORDING'}</span></div><div className="teach-visual"><span className="teach-visual-grid" /><div className="teach-persona"><PikoGlyph state={recording ? 'observing' : 'idle'} /></div><div className="teach-wave teach-wave-a" /><div className="teach-wave teach-wave-b" /><span className="teach-mode-caption">{recording ? 'AUTHORIZED WINDOW OBSERVATION' : 'WAITING FOR YOUR DEMONSTRATION'}</span></div>
           <div className="teach-limits"><Kicker>What this version records</Kicker><p>Opt-in foreground screenshots, UIA observations and permitted click/scroll/special-key events on Windows. Raw typed characters are excluded. Inferred steps are tentative until reviewed and tested.</p></div>
-          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p><button type="button" className="system-secondary" disabled={!!busy || recording} onClick={analyzeDemonstration}>Analyze evidence <Mark name="arrow" size={15} /></button></div><button type="button" disabled={!!busy || recording} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); setTeachAnalysis(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
+          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p>{demonstration.stopped_reason && <p className="operation-note">Recording ended for safety: {demonstration.stopped_reason.replaceAll('_', ' ')}.</p>}<button type="button" className="system-secondary" disabled={!!busy || recording} onClick={analyzeDemonstration}>Analyze evidence <Mark name="arrow" size={15} /></button></div><button type="button" disabled={!!busy || recording} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); setTeachAnalysis(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
           {teachAnalysis && <section className="skill-seed" aria-label="Teach correction editor">
             <div><Kicker>Evidence → correction</Kicker><h3>{teachAnalysis.input_events} permitted events · {teachAnalysis.steps.length} candidate steps</h3><p>{teachAnalysis.uncertainties.join('. ')}. Unresolved steps must be supplied manually; this is not autonomous learning yet.</p></div>
             <form className="skill-form" onSubmit={saveCorrectedDemonstration}>
