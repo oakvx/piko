@@ -45,6 +45,10 @@ class OwnedKeyboard:
                     if self._aborted.is_set():
                         raise InputStopped("Emergency stop during keyboard action")
                     check_target()
+                    # The target callback can trigger a concurrent emergency
+                    # stop. Do not inject even one extra key after it returns.
+                    if self._aborted.is_set():
+                        raise InputStopped("Emergency stop during target validation")
                     self._inject(key, True)
                     self._owned.append(key)
                 if self._aborted.is_set():
