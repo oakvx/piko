@@ -13,7 +13,8 @@ The [CI workflow](../../.github/workflows/ci.yml) runs on pushes to `main`, pull
 5. Compile the desktop wrapper, verify that a real setup EXE exists, and generate SHA-256 checksums.
 6. Upload a CI artifact for any branch or PR build that succeeds.
 7. On a GitHub-hosted Windows runner, download and checksum the produced installer, install NSIS silently for the runner's user, confirm the installed GUI executable starts its bundled Python sidecar, close the GUI, verify sidecar cleanup and uninstall. A failing lifecycle check blocks release publication.
-8. For successful `main` pushes only, publish a GitHub **prerelease** tagged `preview-<12-character-commit-SHA>` targeting that exact commit.
+8. Independently generate and reproduce a CycloneDX 1.6 inventory of all checked-in npm, Cargo and Windows Python locked dependency versions for the exact source commit; publish the SBOM as an immutable-source CI artifact.
+9. For successful `main` pushes only, publish a GitHub **prerelease** tagged `preview-<12-character-commit-SHA>` targeting that exact commit, attaching the installer, SHA-256 sidecar and source-locked SBOM.
 
 A rerun updates assets on the same tag rather than duplicating a release. `contents: write` is scoped to the release job; other jobs are read-only. A failed build produces **no prerelease**. Workflow dispatch on `main` may republish the existing commit's assets.
 
@@ -43,3 +44,9 @@ npm, Cargo and Windows Python packaging now consume checked-in dependency locks.
 - Audit packages and verify non-GPU and multi-monitor behavior.
 
 No hardware-dependent result is claimed from the authoring machine.
+
+## Dependency inventory provenance
+
+The attached `Piko-<full-SHA>-sbom.cdx.json` is a deterministic CycloneDX 1.6 inventory derived directly from `apps/desktop/package-lock.json`, `apps/desktop/src-tauri/Cargo.lock` and `scripts/ci/backend-windows.lock` at the published source commit. Reproduce it from the checkout with `python scripts/ci/generate_sbom.py --source-sha <40-character-SHA> --output distribution/Piko-<SHA>-sbom.cdx.json --check` after generation. The preview job rejects an SBOM from another commit.
+
+The inventory describes locked source dependencies, including optional platform packages present in lockfiles. It is **not** a runtime-installed-package attestation, a guarantee that third-party licenses are approved or proof that Python wheel bytes are hash-pinned. Those items remain independent release-quality requirements.
