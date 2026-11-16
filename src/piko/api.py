@@ -16,18 +16,38 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from piko.contracts import AccessProfile, Grant, Plan, SessionState
+from piko.coach import LocalScreenCoach
 from piko.memory import LocalMemory
 from piko.ollama import OllamaProvider
 from piko.orchestrator import Agent
 from piko.permissions import PermissionManager
 from piko.skills import SkillLibrary
+from piko.setup import SetupCoordinator, load_model_selection, save_model_selection
 from piko.teach import TeachRecorder
 from piko.windows import WindowsDesktop
+
+
+class CoachStartRequest(BaseModel):
+    executable: str = Field(min_length=4, max_length=100)
+    window_handle: int = Field(gt=0)
+    seconds: int = Field(default=1800, ge=30, le=3600)
+    interval_seconds: float = Field(default=4.0, ge=3, le=30)
+    consent: bool = False
+
+
+class SetupInstallRequest(BaseModel):
+    reasoning_model: str = Field(min_length=1, max_length=150)
+    vision_model: str | None = Field(default=None, max_length=150)
+    confirm_download: bool = False
 
 
 class CreateSession(BaseModel):
     objective: str = Field(min_length=1, max_length=500)
     executable: str
+    target_window_handle: int | None = Field(default=None, ge=1)
+    target_process_id: int | None = Field(default=None, ge=1)
+    target_process_started_at: float | None = Field(default=None, ge=0)
+    allow_activate: bool = False
 
 
 class GrantRequest(BaseModel):
@@ -76,14 +96,26 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
                desktop=None, inference=None, root: Path | None = None) -> FastAPI:
     if len(token) < 24:
         raise ValueError("Control-plane token must be at least 24 characters")
-    store = LocalMemory((root or data_root()) / "piko.db")
+    base_root = root or data_root()
+    store = LocalMemory(base_root / "piko.db")
     permissions = PermissionManager()
     desktop = desktop or WindowsDesktop()
-    inference = inference or OllamaProvider(reasoning_model=reasoning_model, vision_model=vision_model)
+    stored_reasoning, stored_vision = load_model_selection(base_root)
+    inference = inference or OllamaProvider(
+        reasoning_model=reasoning_model or stored_reasoning or "",
+        vision_model=vision_model if vision_model is not None else stored_vision,
+    )
     agent = Agent(desktop, inference, store, permissions,
-                  vision=inference.interpret if vision_model else None)
-    skills = SkillLibrary((root or data_root()) / "skills")
-    teach = TeachRecorder(desktop, (root or data_root()) / "demonstrations")
+                  vision=inference.interpret if getattr(inference, "vision_model", None) else None)
+
+    def selected_local_models(vision: str | None) -> None:
+        agent.vision = inference.interpret if vision else None
+        save_model_selection(base_root, inference.reasoning_model, vision)
+
+    setup = SetupCoordinator(inference, selected_local_models)
+    coach = LocalScreenCoach(desktop, inference)
+    skills = SkillLibrary(base_root / "skills")
+    teach = TeachRecorder(desktop, base_root / "demonstrations")
     running: dict[str, asyncio.Task] = {}
     skill_runs: dict[str, str] = {}
 
@@ -119,6 +151,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     async def lifespan(_app: FastAPI):
         yield
         agent.emergency_stop()
+        await coach.stop()
         if teach.active_id is not None:
             await teach.stop()
         await asyncio.gather(*running.values(), return_exceptions=True)
@@ -154,8 +187,57 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.get("/coach", dependencies=[Depends(auth)])
+    async def coach_status():
+        return coach.status()
+
+    @app.post("/coach/start", dependencies=[Depends(auth)])
+    async def coach_start(request: CoachStartRequest):
+        if teach.active_id is not None:
+            raise HTTPException(status_code=409, detail="Stop Teach recording before game capture")
+        if not request.consent:
+            raise HTTPException(status_code=403, detail="Explicit local capture consent required")
+        if any(not task.done() for task in running.values()):
+            raise HTTPException(status_code=409, detail="Stop desktop automation before visual coaching")
+        try:
+            await coach.start(request.executable, request.window_handle,
+                              seconds=request.seconds,
+                              interval_seconds=request.interval_seconds)
+            return coach.status()
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/coach/stop", dependencies=[Depends(auth)])
+    async def coach_stop():
+        await coach.stop()
+        return coach.status()
+
+    @app.get("/setup", dependencies=[Depends(auth)])
+    async def setup_status():
+        return setup.status()
+
+    @app.post("/setup/install", dependencies=[Depends(auth)])
+    async def setup_install(request: SetupInstallRequest):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop local screen coaching before changing models")
+        if not request.confirm_download:
+            raise HTTPException(status_code=403, detail="Confirm third-party runtime and model downloads")
+        if any(not task.done() for task in running.values()):
+            raise HTTPException(status_code=409, detail="Cannot install models while the agent is running")
+        try:
+            setup.start(request.reasoning_model, request.vision_model)
+            return setup.status()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/models/selection", dependencies=[Depends(auth)])
     async def select_models(request: ModelSelectionRequest):
+        if ":cloud" in request.reasoning_model.casefold() or (
+            request.vision_model and ":cloud" in request.vision_model.casefold()
+        ):
+            raise HTTPException(status_code=422, detail="Cloud models are not supported; Piko inference stays local")
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop local screen coaching before changing models")
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Cannot change models during execution")
         installed = {model["name"] for model in await inference.models()}
@@ -170,6 +252,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         inference.reasoning_model = request.reasoning_model
         inference.vision_model = request.vision_model
         agent.vision = inference.interpret if request.vision_model else None
+        save_model_selection(base_root, request.reasoning_model, request.vision_model)
         return {"reasoning": inference.reasoning_model, "vision": inference.vision_model}
 
     @app.post("/permissions", dependencies=[Depends(auth)])
@@ -187,10 +270,26 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         permissions.revoke(exe)
         return {"revoked": exe}
 
+    @app.get("/windows", dependencies=[Depends(auth)])
+    async def target_windows(executable: str):
+        try:
+            if not executable or "/" in executable or "\\" in executable or not executable.lower().endswith(".exe"):
+                raise ValueError("Use a single executable basename such as firefox.exe")
+            enumerate_windows = getattr(desktop, "list_windows", None)
+            if enumerate_windows is None:
+                return []
+            return await asyncio.to_thread(enumerate_windows, executable)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/sessions", dependencies=[Depends(auth)])
     async def create_session(request: CreateSession):
         try:
-            return agent.create(request.objective, request.executable)
+            return agent.create(request.objective, request.executable,
+                                target_window_handle=request.target_window_handle,
+                                target_process_id=request.target_process_id,
+                                target_process_started_at=request.target_process_started_at,
+                                allow_activate=request.allow_activate)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -204,6 +303,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/sessions/{sid}/execute", dependencies=[Depends(auth)])
     async def execute_session(sid: str):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop read-only Coach before desktop input")
         session = find(sid)
         if session.state != SessionState.WAITING_FOR_USER:
             raise HTTPException(status_code=409, detail="Approve only a reviewed pending plan")
@@ -223,6 +324,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/sessions/{sid}/resume", dependencies=[Depends(auth)])
     async def resume_session(sid: str):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop read-only Coach before desktop input")
         find(sid)
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Another session owns desktop input")
@@ -357,6 +460,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/teach/start", dependencies=[Depends(auth)])
     async def teach_start(request: GrantRequest, seconds: int = 30):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop visual coaching before Teach recording")
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Stop active desktop automation before recording")
         try:

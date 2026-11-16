@@ -92,6 +92,164 @@ class WindowsDesktop:
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
             raise DesktopUnavailable("Cannot verify active process identity") from exc
 
+    def list_windows(self, executable: str) -> list[dict]:
+        """List *top-level* windows belonging to the exact requested process.
+
+        Never guess among multiple browser windows or confuse subprocesses
+        with independent tabs. The caller must authorize the executable.
+        """
+        import psutil
+
+        requested = os.path.basename(executable).casefold()
+        if not requested.endswith(".exe") or requested != executable.casefold():
+            raise DesktopUnavailable("Select an executable basename, for example firefox.exe")
+        user32 = ctypes.windll.user32
+        handles: list[int] = []
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        @callback_type
+        def collect(hwnd, _lparam):
+            if user32.IsWindowVisible(hwnd) and user32.GetWindow(hwnd, 4) == 0:
+                handles.append(int(hwnd))
+            return True
+
+        if not user32.EnumWindows(collect, 0):
+            raise DesktopUnavailable("Unable to enumerate desktop windows")
+        result: list[dict] = []
+        for hwnd in handles:
+            title = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(hwnd, title, len(title))
+            bounds = wintypes.RECT()
+            if not user32.GetWindowRect(hwnd, ctypes.byref(bounds)):
+                continue
+            if bounds.right - bounds.left < 120 or bounds.bottom - bounds.top < 80:
+                continue
+            pid = wintypes.DWORD(0)
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try:
+                proc = psutil.Process(pid.value)
+                name = os.path.basename(proc.exe()).casefold()
+                if name != requested:
+                    continue
+                started = float(proc.create_time())
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                continue
+            result.append({"window_handle": hwnd, "process_id": pid.value,
+                           "process_started_at": started, "executable": name,
+                           "title": (title.value[:240] or "(untitled game window)")})
+        return result[:40]
+
+    def _assert_window(self, hwnd: int, executable: str,
+                       process_id: int | None = None,
+                       started_at: float | None = None) -> dict:
+        """Revalidate HWND, process and process lifetime without changing focus."""
+        user32 = ctypes.windll.user32
+        if not hwnd or not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd):
+            raise DesktopUnavailable("Selected application window is no longer available")
+        pid = wintypes.DWORD(0)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        import psutil
+        try:
+            proc = psutil.Process(pid.value)
+            actual_name = os.path.basename(proc.exe()).casefold()
+            actual_start = float(proc.create_time())
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError) as exc:
+            raise DesktopUnavailable("Selected application process cannot be verified") from exc
+        if actual_name != executable.casefold() or (process_id is not None and pid.value != process_id):
+            raise DesktopUnavailable("Selected window changed process; operation refused")
+        if started_at is not None and actual_start != started_at:
+            raise DesktopUnavailable("Selected window PID was reused; operation refused")
+        title = ctypes.create_unicode_buffer(1024)
+        user32.GetWindowTextW(hwnd, title, len(title))
+        return {"pid": pid.value, "started": actual_start, "title": title.value,
+                "executable": actual_name}
+
+    def is_window_foreground(self, hwnd: int) -> bool:
+        """Read-only check used by live coaching before any frame capture."""
+        return self._foreground()[0] == hwnd
+
+    def observe_window(self, hwnd: int, executable: str,
+                       include_image: bool = False,
+                       expected: Observation | None = None,
+                       window_pixels_only: bool = False) -> Observation:
+        """Observe authorized window via UIA even while Piko is foreground.
+
+        Pixels are captured only if this exact window is foreground. Never
+        pretend a stale/occluded screenshot is a valid fresh observation.
+        """
+        identity = self._assert_window(
+            hwnd, executable,
+            expected.process_id if expected is not None else None,
+            expected.process_started_at if expected is not None else None,
+        )
+        foreground = self._foreground()[0] == hwnd
+        if include_image and foreground and not window_pixels_only:
+            # Workfield may use the pre-existing foreground screenshot route.
+            # Coach requests HWND-only pixels to avoid overlay contamination.
+            observed = self.observe(include_image=True)
+            if observed.window_handle != hwnd or observed.process_id != identity["pid"]:
+                raise DesktopUnavailable("Authorized window changed during capture")
+            return observed
+        elements = self._elements(hwnd)
+        refreshed = self._assert_window(
+            hwnd, executable, identity["pid"], identity["started"],
+        )
+        if any(e.is_password for e in elements):
+            raise DesktopUnavailable("Sensitive password field detected; observation blocked")
+        image_base64 = None
+        capture_bounds = None
+        if include_image and not ctypes.windll.user32.IsIconic(hwnd):
+            # Pillow 11.2.1+ uses Windows' HWND-specific capture path. Unlike
+            # a desktop rectangle it cannot grab an unrelated foreground app.
+            # Some GPU, DRM and minimized windows return blank/inaccessible
+            # pixels: fail softly to semantic UIA, never hallucinate a frame.
+            from PIL import ImageGrab
+            bounds = wintypes.RECT()
+            if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(bounds)):
+                width = bounds.right - bounds.left
+                height = bounds.bottom - bounds.top
+                if 2 <= width <= 8192 and 2 <= height <= 8192:
+                    try:
+                        picture = ImageGrab.grab(window=hwnd).convert("RGB")
+                        self._assert_window(
+                            hwnd, executable, identity["pid"], identity["started"])
+                        extrema = picture.getextrema()
+                        if picture.width > 1 and picture.height > 1 and any(
+                            hi - lo >= 3 for lo, hi in extrema
+                        ):
+                            out = io.BytesIO()
+                            picture.save(out, format="PNG")
+                            image_base64 = base64.b64encode(out.getvalue()).decode("ascii")
+                            capture_bounds = (bounds.left, bounds.top,
+                                              picture.width, picture.height)
+                    except (OSError, ValueError, RuntimeError):
+                        # Target capture unavailable; do not fall back to grabbing
+                        # whatever different window happens to be foreground.
+                        pass
+        self._assert_window(hwnd, executable, identity["pid"], identity["started"])
+        return Observation(window_title=refreshed["title"], executable=executable.casefold(),
+                           process_id=identity["pid"], window_handle=hwnd,
+                           process_started_at=identity["started"], elements=elements,
+                           image_base64=image_base64, capture_bounds=capture_bounds)
+
+    def activate_window(self, expected: Observation) -> None:
+        """Foreground *only* the already reviewed HWND before approved input."""
+        self._assert_input_not_stopped()
+        if not expected.window_handle:
+            raise DesktopUnavailable("No reviewed Windows target to activate")
+        self._assert_window(expected.window_handle, expected.executable,
+                            expected.process_id, expected.process_started_at)
+        if self._foreground()[0] == expected.window_handle:
+            return
+        ctypes.windll.user32.SetForegroundWindow(expected.window_handle)
+        try:
+            self._assert_active(expected)
+        except DesktopUnavailable as exc:
+            raise DesktopUnavailable(
+                "Windows did not allow focusing the reviewed application. "
+                "Select its window manually and retry; no input was sent."
+            ) from exc
+
     def _elements(self, hwnd: int) -> list[UIElement]:
         from pywinauto import Desktop
         window = Desktop(backend="uia").window(handle=hwnd)
@@ -279,7 +437,7 @@ class WindowsDesktop:
         elif action.kind == ActionKind.HOTKEY:
             # PermissionManager checked the exact allowlist before dispatch.
             codes = {"ctrl": 0x11, "tab": 0x09, "escape": 0x1B,
-                     "a": 0x41, "c": 0x43, "v": 0x56}
+                     "a": 0x41, "c": 0x43, "v": 0x56, "w": 0x57}
             keys = tuple(codes[key.casefold()] for key in action.keys)
             def check_target() -> None:
                 self._assert_active(expected)

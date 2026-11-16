@@ -40,6 +40,30 @@ export class PikoClient {
   }
 
   health() { return this.request<Health>('/health'); }
+  coachStatus() {
+    return this.request<{ active: boolean; stage: string; advice: string | null;
+      observed_at: string | null; error: string | null; frames: number }>('/coach');
+  }
+  startCoach(executable: string, window_handle: number) {
+    return this.request('/coach/start', { method: 'POST',
+      body: JSON.stringify({ executable, window_handle, consent: true,
+        interval_seconds: 4, seconds: 1800 }) });
+  }
+  stopCoach() { return this.request('/coach/stop', { method: 'POST' }); }
+  setup() {
+    return this.request<{
+      stage: string; progress: number; error: string | null;
+      reasoning: string | null; vision: string | null; running: boolean;
+      ollama_installed: boolean;
+      hardware: { ram_gb: number; cpu_cores: number; gpu_vram_gb: number | null;
+                  free_disk_gb: number; reasoning_model: string;
+                  vision_model: string | null; estimate_download_gb: number; note: string };
+    }>('/setup');
+  }
+  installLocalAI(reasoning_model: string, vision_model: string | null) {
+    return this.request<Awaited<ReturnType<PikoClient['setup']>>>('/setup/install', { method: 'POST',
+      body: JSON.stringify({ reasoning_model, vision_model, confirm_download: true }) });
+  }
   models() { return this.request<{ installed: ModelInfo[]; reasoning: string | null; vision: string | null }>('/models'); }
   selectModels(reasoning_model: string, vision_model: string | null) {
     return this.request<{ reasoning: string; vision: string | null }>('/models/selection', {
@@ -80,8 +104,20 @@ export class PikoClient {
     return this.request<Array<{ session_id: string; completed: boolean; timestamp: string }>>(
       `/skills/${encodeURIComponent(slug)}/history`);
   }
-  createSession(objective: string, executable: string) {
-    return this.request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ objective, executable }) });
+  windows(executable: string) {
+    return this.request<Array<{ window_handle: number; title: string; executable: string; process_id: number; process_started_at: number }>>(
+      `/windows?executable=${encodeURIComponent(executable)}`);
+  }
+  createSession(objective: string, executable: string,
+    target?: { window_handle: number; process_id: number; process_started_at: number }) {
+    return this.request<Session>('/sessions', {
+      method: 'POST', body: JSON.stringify({
+        objective, executable, target_window_handle: target?.window_handle ?? null,
+        target_process_id: target?.process_id ?? null,
+        target_process_started_at: target?.process_started_at ?? null,
+        allow_activate: target !== undefined,
+      }),
+    });
   }
   grant(executable: string, profile: 'observe' | 'limited', session_id?: string) {
     return this.request('/permissions', { method: 'POST', body: JSON.stringify({ executable, profile, session_id }) });

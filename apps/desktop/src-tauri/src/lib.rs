@@ -21,6 +21,58 @@ fn backend_config(state: tauri::State<'_, BackendState>) -> Option<BackendConfig
     state.config.clone()
 }
 
+/// Called ONLY after the user clicked a reviewed route's Execute control.
+/// The backend independently verifies exact HWND, PID and process creation time
+/// before *any* native input. Never accepts window titles or executable paths.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn focus_selected_window(window_handle: isize, process_id: u32) -> Result<(), String> {
+    #[link(name = "user32")]
+    extern "system" {
+        fn IsWindow(hwnd: isize) -> i32;
+        fn GetWindowThreadProcessId(hwnd: isize, pid: *mut u32) -> u32;
+        fn SetForegroundWindow(hwnd: isize) -> i32;
+    }
+    if window_handle <= 0 || process_id == 0 {
+        return Err("No reviewed native window to focus".into());
+    }
+    let mut actual = 0u32;
+    let valid = unsafe {
+        IsWindow(window_handle) != 0 &&
+        GetWindowThreadProcessId(window_handle, &mut actual) != 0 &&
+        actual == process_id
+    };
+    if !valid {
+        return Err("Reviewed window is no longer owned by its original process".into());
+    }
+    if unsafe { SetForegroundWindow(window_handle) } == 0 {
+        return Err("Windows refused foreground activation; no input was sent".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn focus_selected_window(_window_handle: isize, _process_id: u32) -> Result<(), String> {
+    Err("Native window activation requires Windows".into())
+}
+
+/// Explicit, user-invoked compact always-on-top view for local game advice.
+/// Never captures the desktop or injects input; those remain in the backend.
+#[tauri::command]
+fn set_coach_overlay(window: tauri::Window, enabled: bool) -> Result<(), String> {
+    if enabled {
+        window.set_size(tauri::LogicalSize::new(420.0, 340.0))
+            .map_err(|e| e.to_string())?;
+        window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    } else {
+        window.set_always_on_top(false).map_err(|e| e.to_string())?;
+        window.set_size(tauri::LogicalSize::new(1380.0, 850.0))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -60,7 +112,7 @@ pub fn run() {
                 };
             }
         })
-        .invoke_handler(tauri::generate_handler![backend_config])
+        .invoke_handler(tauri::generate_handler![backend_config, set_coach_overlay, focus_selected_window])
         .run(tauri::generate_context!())
         .expect("Piko desktop runtime failed");
 }

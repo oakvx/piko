@@ -3,6 +3,9 @@ from piko.contracts import Expectation, Observation
 
 
 def verify(expectation: Expectation, observation: Observation) -> tuple[bool, str]:
+    if expectation.property == "window_title_changed":
+        changed = observation.window_title != expectation.value
+        return changed, ("Window title changed" if changed else "Window title did not change")
     matches = [e for e in observation.elements if e.automation_id == expectation.automation_id]
     if len(matches) != 1:
         return False, f"Verification UIA target is ambiguous or unavailable ({len(matches)} matches)"

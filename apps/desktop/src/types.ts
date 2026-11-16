@@ -1,5 +1,5 @@
 export type AgentState = 'idle' | 'observing' | 'analyzing' | 'planning' | 'executing' | 'verifying' | 'paused' | 'waiting_for_user' | 'completed' | 'failed' | 'cancelled';
-export type Lens = 'work' | 'teach' | 'skills' | 'system';
+export type Lens = 'work' | 'teach' | 'skills' | 'coach' | 'system';
 export type Access = 'observe' | 'limited' | 'full';
 
 export interface Expectation {
@@ -25,6 +25,10 @@ export interface Session {
   objective: string;
   state: AgentState;
   app_executable: string;
+  target_window_handle?: number | null;
+  target_process_id?: number | null;
+  target_process_started_at?: number | null;
+  allow_activate?: boolean;
   created_at: string;
   updated_at: string;
   plan: Plan | null;

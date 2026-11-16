@@ -151,3 +151,28 @@ Design notes: [Architecture](docs/architecture/DECISIONS.md).
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:ffb347,100:ff5c8a&height=100&section=footer" width="100%" alt="">
 </p>
+
+
+## Windows-first local setup and Live Coach (experimental)
+
+The installed Piko desktop opens a first-run setup when the Ollama runtime is
+missing. System recommends a local reasoning and optional vision model based on
+RAM, available disk and detectable NVIDIA VRAM. After explicit consent, Piko
+downloads the official Ollama installer, verifies its Authenticode signature,
+installs it for the current user and pulls the selected local models. No cloud
+account or API key is needed; **model and runtime downloads do require internet**.
+The NSIS installer itself intentionally does not bundle Ollama's multi-GB
+redistributable or delete a user's pre-existing Ollama/models on uninstall.
+
+Workfield can select an explicit open window by executable, title and process
+identity even while Piko is in front. UIA planning is background-capable; a
+separately reviewed action activates only the approved HWND. HWND-specific screenshots are attempted on supported Windows/Pillow versions,
+but unsupported or blank capture falls back to UIA without foreign pixels.
+
+The optional **Coach** lens captures the approved foreground game window at a
+bounded interval and generates tips using local Ollama vision. Capture stops on
+request, expiry or invalid window identity. It neither stores captured frames
+nor controls the game. The compact Piko overlay works best in borderless or
+windowed games; protected/exclusive-fullscreen capture may be unavailable.
+
+See [Windows setup, background targeting and Coach limitations](docs/development/LOCAL_DESKTOP_SETUP_AND_COACH.md).

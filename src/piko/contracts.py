@@ -41,12 +41,12 @@ class ActionKind(StrEnum):
 class Expectation(StrictModel):
     """A directly observable UIA property, not a language-model judgement."""
     automation_id: str = Field(min_length=1, max_length=128)
-    property: Literal["exists", "text_equals", "text_contains", "enabled"]
+    property: Literal["exists", "text_equals", "text_contains", "enabled", "window_title_changed"]
     value: str | bool | None = None
 
     @model_validator(mode="after")
     def validate_value(self) -> "Expectation":
-        if self.property in {"text_equals", "text_contains"} and not isinstance(self.value, str):
+        if self.property in {"text_equals", "text_contains", "window_title_changed"} and not isinstance(self.value, str):
             raise ValueError("Text expectations require a string value")
         if self.property == "enabled" and not isinstance(self.value, bool):
             raise ValueError("Enabled expectation requires a boolean")
@@ -127,6 +127,11 @@ class Session(StrictModel):
     objective: str
     state: SessionState = SessionState.IDLE
     app_executable: str
+    # Optional, user-selected top-level Win32 HWND (validated with PID + process start).
+    target_window_handle: int | None = Field(default=None, ge=1)
+    target_process_id: int | None = Field(default=None, ge=1)
+    target_process_started_at: float | None = Field(default=None, ge=0)
+    allow_activate: bool = False
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
     plan: Plan | None = None

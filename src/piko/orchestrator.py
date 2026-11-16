@@ -50,12 +50,22 @@ class Agent:
                                       payload={"state": target.value}))
         return result
 
-    def create(self, objective: str, app_executable: str) -> Session:
+    def create(self, objective: str, app_executable: str, *,
+               target_window_handle: int | None = None,
+               target_process_id: int | None = None,
+               target_process_started_at: float | None = None,
+               allow_activate: bool = False) -> Session:
         if not objective.strip() or not app_executable.lower().endswith(".exe"):
             raise ValueError("Objective and .exe application name are required")
         if "/" in app_executable or "\\" in app_executable:
             raise ValueError("Application name must not include paths")
-        session = Session(objective=objective, app_executable=app_executable.casefold())
+        if allow_activate and target_window_handle is None:
+            raise ValueError("Foreground activation requires a selected application window")
+        session = Session(objective=objective, app_executable=app_executable.casefold(),
+                          target_window_handle=target_window_handle,
+                          target_process_id=target_process_id,
+                          target_process_started_at=target_process_started_at,
+                          allow_activate=allow_activate)
         self.sessions[session.id] = session
         self.memory.save(session)
         self._cancel[session.id] = asyncio.Event()
@@ -66,7 +76,19 @@ class Agent:
         # Check consent before screenshot capture, as well as after process
         # identity has been observed. Unauthorized captures must not happen.
         self.permissions.check_observe(session.app_executable, session.id)
-        observation = self.desktop.observe(include_image=include_image)
+        observe_window = getattr(self.desktop, "observe_window", None)
+        if session.target_window_handle is not None and observe_window is not None:
+            kwargs = {"include_image": include_image}
+            if session.target_process_id is not None and session.target_process_started_at is not None:
+                kwargs["expected"] = Observation(window_title="",
+                    executable=session.app_executable,
+                    process_id=session.target_process_id,
+                    process_started_at=session.target_process_started_at,
+                    window_handle=session.target_window_handle, elements=[])
+            observation = observe_window(session.target_window_handle,
+                                         session.app_executable, **kwargs)
+        else:
+            observation = self.desktop.observe(include_image=include_image)
         if observation.executable.casefold() != session.app_executable:
             raise RuntimeError("Authorized application executable changed")
         pinned = self._approved_windows.get(session.id)
@@ -91,7 +113,10 @@ class Agent:
         try:
             observation = await asyncio.to_thread(self._observation, session, self.vision is not None)
             session = self._state(session, SessionState.ANALYZING)
-            summary = await self.vision(observation) if self.vision else None
+            # A background window can be inspected through UIA, but its pixels
+            # must never be fabricated from an occluded desktop screenshot.
+            # Use vision only when scoped, fresh pixels are available.
+            summary = await self.vision(observation) if self.vision and observation.image_base64 else None
             session = self._state(session, SessionState.PLANNING)
             plan = await self.planner.plan(session.objective, observation, summary)
             # Model cannot request UI controls not observed at planning time.
@@ -162,6 +187,16 @@ class Agent:
             # ledger. Never write text inputs, screen content or model plans.
             action_context: tuple[str, int, str] | None = None
             try:
+                if session.allow_activate:
+                    activate = getattr(self.desktop, "activate_window", None)
+                    if activate is None:
+                        raise RuntimeError("Desktop does not support reviewed-window activation")
+                    approved = self._approved_windows[session.id]
+                    expected_window = Observation(window_title="",
+                        executable=session.app_executable, process_id=approved[1],
+                        window_handle=approved[0], process_started_at=approved[2],
+                        elements=[])
+                    await asyncio.to_thread(activate, expected_window)
                 for index in range(session.next_action, len(session.plan.actions)):
                     action = session.plan.actions[index]
                     if self._cancel[session.id].is_set():
