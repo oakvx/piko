@@ -112,10 +112,13 @@ async def test_resume_route_must_revalidate_from_next_step(tmp_path):
     perms.grant(Grant(executable="demo.exe", session_id=current.id))
     first = Action(kind="ui.click", automation_id="action", timeout_seconds=0.1,
                    expected=Expectation(automation_id="action", property="exists"))
-    # Mark a route as reviewed, and simulate a safe pause checkpoint after step 1.
-    current = current.model_copy(update={"state": SessionState.PAUSED, "next_action": 1,
-                                         "plan": Plan(objective="two actions", explanation="test",
-                                                      actions=[first, first])})
+    # Establish a REAL reviewed window binding before simulating the pause.
+    # A forged PAUSED state without review must fail closed.
+    reviewed_plan = Plan(objective="two actions", explanation="test",
+                         actions=[first, first])
+    ready = await agent.prepare_from_plan(current.id, reviewed_plan)
+    assert ready.state == SessionState.WAITING_FOR_USER
+    current = ready.model_copy(update={"state": SessionState.PAUSED, "next_action": 1})
     agent.sessions[current.id] = current
     agent.resume(current.id)
     result = await agent.run(current.id)
