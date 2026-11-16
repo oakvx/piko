@@ -196,7 +196,19 @@ class SkillLibrary:
         return self.save_draft(slug, str(metadata.get("description", "Imported draft"))[:500],
                                executable.casefold(), plan)
 
-    def record_run(self, slug: str, session_id: str, succeeded: bool) -> None:
+    def record_run(self, slug: str, session_id: str, succeeded: bool, *,
+                   wall_duration_ms: int | None = None,
+                   verified_actions: int = 0) -> None:
+        """Persist terminal-only, non-sensitive performance evidence.
+
+        Wall duration is measured from the first executing state to terminal
+        state; if paused and resumed it intentionally includes pause time.
+        """
+        if (wall_duration_ms is not None
+                and (type(wall_duration_ms) is not int or wall_duration_ms < 0)):
+            raise SkillError("Invalid wall duration")
+        if type(verified_actions) is not int or verified_actions < 0:
+            raise SkillError("Invalid verified action count")
         folder = self._folder(slug)
         self.load_plan(slug)
         path = folder / "history.json"
@@ -208,6 +220,8 @@ class SkillLibrary:
         history.append({
             "session_id": session_id,
             "completed": bool(succeeded),
+            "verified_actions": verified_actions,
+            "wall_duration_ms": wall_duration_ms,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "note": "Successful session is not proof of generalization",
         })
