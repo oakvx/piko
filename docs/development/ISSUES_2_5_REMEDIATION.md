@@ -19,11 +19,13 @@ This document tracks **merged remediation from PR #6 and follow-up release harde
 
 - Recording supports opt-in, foreground HWND/PID-scoped mouse clicks, scrolls and selected navigation key names without typed-character capture; paired with timestamped screenshot/UIA timeline.
 - Analysis emits only tentative element matches with uncertainties and requires user correction; does not claim automatic procedural intelligence.
+- A guided correction editor exposes observed, redacted UIA targets and lets the user revise objectives, explanations, action types, selectors, typed-text parameter names and independently observable outcomes. Advanced strict JSON remains available, but the local client never automatically asserts a user has reviewed the result: a separate explicit confirmation is mandatory before saving.
+- Corrected draft outcome selectors must also appear in the consented demonstration, preventing ungrounded verification targets. Imported ZIPs now reject duplicate metadata entries and typed-plan executable extensions/instructions.
 - Corrected typed plans can become `DRAFT` Skills after explicit consent. Imported ZIPs cannot contain scripts or arbitrary additional entries.
 - Skills must be separately reviewed, granted and approved at execution time, and executed outcomes are logged without automatically setting verification status.
 - Runtime pauses do not count as failed Skill executions: attribution survives pause/resume until a terminal state. Per-run history now retains a sanitized verified-action count and wall-clock duration (including pause time), without storing user-entered text or captured pixels.
 - Draft versions are archived with rollback and export/import. Verified revisions cannot be overwritten.
-- **Still limited:** free-form goal inference, a visual parameter editor, generalized semantics and real cross-session Skill performance benchmarks need additional work. Raw pixels may include sensitive information even when timeline metadata is redacted.
+- **Still limited:** free-form goal inference, generalized semantics and real cross-session Skill performance benchmarks need additional work. Raw pixels may include sensitive information even when timeline metadata is redacted.
 
 ## Issue #5 — Dependency reproducibility and scanning
 
