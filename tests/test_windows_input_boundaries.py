@@ -87,3 +87,44 @@ def test_emergency_stop_aborts_and_releases_injected_key():
     assert sent == [(0x11, True), (0x11, False)]
     with pytest.raises(InputStopped):
         guard.chord((0x09,), lambda: None)
+
+
+def test_process_id_reuse_refused_even_when_hwnd_pid_and_name_match():
+    bridge = object.__new__(WindowsDesktop)
+    bridge._foreground = lambda: (101, 24, "demo.exe", "Fixture")
+    bridge._process_started_at = lambda _pid: 250.0
+    before = observation()
+    before.process_started_at = 100.0
+    bridge._target = lambda *_args: pytest.fail("Refused process must not be targeted")
+    with pytest.raises(DesktopUnavailable, match="PID was reused"):
+        bridge.execute_observed(click(), before)
+
+
+def test_observation_refuses_foreground_switch_during_uia_enumeration():
+    bridge = object.__new__(WindowsDesktop)
+    active = [(101, 24, "demo.exe", "Fixture")]
+    bridge._foreground = lambda: active[0]
+    bridge._process_started_at = lambda _pid: 100.0
+
+    def enumerate_uia(_hwnd):
+        active[0] = (202, 25, "foreign.exe", "Other")
+        return [UIElement(automation_id="Save", control_type="Button")]
+
+    bridge._elements = enumerate_uia
+    with pytest.raises(DesktopUnavailable, match="changed"):
+        bridge.observe(include_image=False)
+
+
+def test_observation_refuses_process_reuse_during_uia_enumeration():
+    bridge = object.__new__(WindowsDesktop)
+    started = [100.0]
+    bridge._foreground = lambda: (101, 24, "demo.exe", "Fixture")
+    bridge._process_started_at = lambda _pid: started[0]
+
+    def enumerate_uia(_hwnd):
+        started[0] = 250.0
+        return []
+
+    bridge._elements = enumerate_uia
+    with pytest.raises(DesktopUnavailable, match="PID was reused"):
+        bridge.observe(include_image=False)
