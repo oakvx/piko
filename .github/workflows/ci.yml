@@ -125,10 +125,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ github.token }}
-          working-directory: apps/desktop/src-tauri
+      # Run the RustSec scanner directly. The rustsec/audit-check action
+      # tries to create GitHub Checks for advisory warnings; the workflow's
+      # read-only token cannot do so, which previously blocked all prereleases
+      # even when RustSec reported zero security vulnerabilities.
+      - name: Install locked RustSec scanner
+        run: cargo install --locked --version 0.23.0 cargo-audit
+      - name: Audit exact released Cargo.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo audit --file apps/desktop/src-tauri/Cargo.lock
 
   python-dependency-audit:
     name: Audit pinned Windows Python packages
