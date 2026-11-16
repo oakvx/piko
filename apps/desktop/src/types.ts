@@ -25,6 +25,10 @@ export interface Session {
   objective: string;
   state: AgentState;
   app_executable: string;
+  target_window_handle?: number | null;
+  target_process_id?: number | null;
+  target_process_started_at?: number | null;
+  allow_activate?: boolean;
   created_at: string;
   updated_at: string;
   plan: Plan | null;
