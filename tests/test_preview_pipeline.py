@@ -18,6 +18,12 @@ def test_preview_gating_and_release_files():
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke"]
     assert "rust-dependency-audit" in jobs
+    rust_scan_steps = jobs["rust-dependency-audit"]["steps"]
+    rust_scan = "\n".join(step.get("run", "") for step in rust_scan_steps)
+    assert "cargo install --locked --version 0.23.0 cargo-audit" in rust_scan
+    assert "cargo audit --file apps/desktop/src-tauri/Cargo.lock" in rust_scan
+    assert not any("rustsec/audit-check" in step.get("uses", "") for step in rust_scan_steps)
+    assert jobs["rust-dependency-audit"].get("permissions", {}).get("checks") != "write"
     assert "npm ci" in "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
     assert "cargo metadata --locked" in "\n".join(
         step.get("run", "") for step in jobs["windows-installer"]["steps"])
@@ -84,3 +90,15 @@ def test_ci_version_stamping_keeps_dependency_locks_synchronized(tmp_path, monke
     npm = json.loads((desktop / "package-lock.json").read_text())
     assert npm["version"] == npm["packages"][""]["version"] == "0.1.321"
     assert 'version = "0.1.321"' in (tauri / "Cargo.lock").read_text()
+
+
+def test_ci_github_actions_are_immutable_pins():
+    """Prevent a moving third-party action tag from changing release provenance."""
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    for job in workflow["jobs"].values():
+        for step in job.get("steps", []):
+            uses = step.get("uses")
+            if uses:
+                assert re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[a-f0-9]{40}", uses), (
+                    f"Unpinned GitHub Action: {uses}"
+                )
