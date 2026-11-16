@@ -184,6 +184,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/coach/start", dependencies=[Depends(auth)])
     async def coach_start(request: CoachStartRequest):
+        if teach.active_id is not None:
+            raise HTTPException(status_code=409, detail="Stop Teach recording before game capture")
         if not request.consent:
             raise HTTPException(status_code=403, detail="Explicit local capture consent required")
         if any(not task.done() for task in running.values()):
@@ -207,6 +209,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/setup/install", dependencies=[Depends(auth)])
     async def setup_install(request: SetupInstallRequest):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop local screen coaching before changing models")
         if not request.confirm_download:
             raise HTTPException(status_code=403, detail="Confirm third-party runtime and model downloads")
         if any(not task.done() for task in running.values()):
@@ -219,6 +223,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/models/selection", dependencies=[Depends(auth)])
     async def select_models(request: ModelSelectionRequest):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop local screen coaching before changing models")
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Cannot change models during execution")
         installed = {model["name"] for model in await inference.models()}
@@ -283,6 +289,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/sessions/{sid}/execute", dependencies=[Depends(auth)])
     async def execute_session(sid: str):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop read-only Coach before desktop input")
         session = find(sid)
         if session.state != SessionState.WAITING_FOR_USER:
             raise HTTPException(status_code=409, detail="Approve only a reviewed pending plan")
@@ -302,6 +310,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/sessions/{sid}/resume", dependencies=[Depends(auth)])
     async def resume_session(sid: str):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop read-only Coach before desktop input")
         find(sid)
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Another session owns desktop input")
