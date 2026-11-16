@@ -118,12 +118,38 @@ def test_ci_version_stamping_keeps_dependency_locks_synchronized(tmp_path, monke
 
 
 def test_ci_github_actions_are_immutable_pins():
-    """Prevent a moving third-party action tag from changing release provenance."""
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    for job in workflow["jobs"].values():
-        for step in job.get("steps", []):
-            uses = step.get("uses")
-            if uses:
-                assert re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[a-f0-9]{40}", uses), (
-                    f"Unpinned GitHub Action: {uses}"
-                )
+    """All release and manually invoked test actions must be immutable pins."""
+    workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+    assert workflows
+    for workflow_path in workflows:
+        workflow = yaml.safe_load(workflow_path.read_text())
+        for job in workflow["jobs"].values():
+            for step in job.get("steps", []):
+                uses = step.get("uses")
+                if uses:
+                    assert re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[a-f0-9]{40}", uses), (
+                        f"Unpinned GitHub Action in {workflow_path.name}: {uses}"
+                    )
+
+
+def test_real_ollama_acceptance_is_opt_in_and_requires_both_model_roles():
+    workflow_path = ROOT / ".github/workflows/real-ollama.yml"
+    contents = workflow_path.read_text()
+    workflow = yaml.safe_load(contents)
+    assert "workflow_dispatch:" in contents
+    assert "pull_request:" not in contents
+    assert "push:" not in contents
+    assert list(workflow["jobs"]) == ["real-ollama-windows"]
+    job = workflow["jobs"]["real-ollama-windows"]
+    assert job["runs-on"] == "windows-latest"
+    assert job["env"]["PIKO_REAL_OLLAMA"] == "1"
+    assert job["env"]["PIKO_OLLAMA_REASONING_MODEL"]
+    assert job["env"]["PIKO_OLLAMA_VISION_MODEL"]
+    commands = "\n".join(step.get("run", "") for step in job["steps"])
+    assert "Get-FileHash" in commands
+    assert "ollama-windows-amd64.zip" in commands
+    assert "tests/real/test_ollama_inference.py" in commands
+    assert "--junitxml=acceptance/real-ollama-windows.xml" in commands
+    assert any(step.get("if") == "always()" and
+               step.get("with", {}).get("path") == "acceptance/"
+               for step in job["steps"])
