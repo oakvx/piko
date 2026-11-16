@@ -61,10 +61,16 @@ try {
     }
 
     $folder = Split-Path -Parent $uninstallExecutable
-    $installedExecutable = Join-Path $folder 'Piko.exe'
-    if (-not (Test-Path -LiteralPath $installedExecutable -PathType Leaf)) {
-        throw 'Piko.exe was not installed alongside the NSIS uninstaller'
+    # Depending on the Tauri bundle's mainBinaryName, the installed binary
+    # can be named after the product or the Cargo package.
+    $candidateExecutables = @('Piko.exe', 'piko-desktop.exe')
+    $installedExecutables = @($candidateExecutables |
+        ForEach-Object { Join-Path $folder $_ } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+    if ($installedExecutables.Count -ne 1) {
+        throw "Expected one installed Piko executable, found $($installedExecutables.Count)"
     }
+    $installedExecutable = $installedExecutables[0]
     Write-Host "Real installed executable found: $installedExecutable"
 
     $appProcess = Start-Process -FilePath $installedExecutable -PassThru
