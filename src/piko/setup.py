@@ -28,7 +28,8 @@ def _valid_model_tag(value) -> bool:
 
     return (isinstance(value, str) and
             re.fullmatch(r"[A-Za-z0-9_.:-]{1,150}", value) is not None and
-            not value.casefold().endswith(":cloud"))
+            ":cloud" not in value.casefold() and
+            not value.casefold().endswith("-cloud"))
 
 
 def load_model_selection(root: Path) -> tuple[str | None, str | None]:
