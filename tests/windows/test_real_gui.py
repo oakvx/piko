@@ -68,7 +68,12 @@ def test_real_windows_testbench_uia_actions_and_observed_outcome():
             if matched:
                 break
             time.sleep(0.1)
-        assert matched, "Real Windows UI did not display the saved state"
+        assert matched, (
+            "Real Windows UI did not display the saved state: "
+            + str([(e.automation_id, e.control_type, e.name, e.value)
+                   for e in latest.elements if e.automation_id in
+                   {"NameInput", "SaveButton", "StatusLabel"}])
+        )
         bridge.emergency_release()
     finally:
         app.terminate()
