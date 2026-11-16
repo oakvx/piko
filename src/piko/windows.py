@@ -181,7 +181,7 @@ class WindowsDesktop:
             except Exception:
                 continue
         if len(matches) != 1:
-            raise DesktopUnavailable(f"UIA target {automation_id!r} matched {len(matches)} controls")
+            raise DesktopUnavailable(f"UIA target not uniquely resolved ({len(matches)} matches)")
         return matches[0]
 
     def _assert_active(self, expected: Observation) -> int:
