@@ -185,9 +185,14 @@ class WindowsDesktop:
                 info = el.element_info
                 identity = info.automation_id or (
                     f"name::{info.control_type}::{info.name}" if info.name else "")
-                if identity == automation_id and not bool(getattr(info, "is_password", False)):
+                if identity == automation_id:
+                    if bool(getattr(info, "is_password", False)):
+                        raise DesktopUnavailable("UIA target is a password control")
                     matches.append(el)
+            except DesktopUnavailable:
+                raise
             except Exception:
+                # Unreadable controls are not accepted as valid targets.
                 continue
         if len(matches) != 1:
             raise DesktopUnavailable(f"UIA target not uniquely resolved ({len(matches)} matches)")
