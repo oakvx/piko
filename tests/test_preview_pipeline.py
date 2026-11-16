@@ -132,13 +132,15 @@ def test_ci_github_actions_are_immutable_pins():
                     )
 
 
-def test_real_ollama_acceptance_is_opt_in_and_requires_both_model_roles():
+def test_real_ollama_acceptance_runs_on_relevant_main_changes_and_requires_both_roles():
     workflow_path = ROOT / ".github/workflows/real-ollama.yml"
     contents = workflow_path.read_text()
     workflow = yaml.safe_load(contents)
     assert "workflow_dispatch:" in contents
     assert "pull_request:" not in contents
-    assert "push:" not in contents
+    assert "push:" in contents
+    assert "tests/real/test_ollama_inference.py" in contents
+    assert ".github/workflows/real-ollama.yml" in contents
     assert list(workflow["jobs"]) == ["real-ollama-windows"]
     job = workflow["jobs"]["real-ollama-windows"]
     assert job["runs-on"] == "windows-latest"
