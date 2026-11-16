@@ -80,8 +80,17 @@ export class PikoClient {
     return this.request<Array<{ session_id: string; completed: boolean; timestamp: string }>>(
       `/skills/${encodeURIComponent(slug)}/history`);
   }
-  createSession(objective: string, executable: string) {
-    return this.request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ objective, executable }) });
+  windows(executable: string) {
+    return this.request<Array<{ window_handle: number; title: string; executable: string; process_id: number }>>(
+      `/windows?executable=${encodeURIComponent(executable)}`);
+  }
+  createSession(objective: string, executable: string, targetWindowHandle?: number) {
+    return this.request<Session>('/sessions', {
+      method: 'POST', body: JSON.stringify({
+        objective, executable, target_window_handle: targetWindowHandle ?? null,
+        allow_activate: targetWindowHandle !== undefined,
+      }),
+    });
   }
   grant(executable: string, profile: 'observe' | 'limited', session_id?: string) {
     return this.request('/permissions', { method: 'POST', body: JSON.stringify({ executable, profile, session_id }) });
