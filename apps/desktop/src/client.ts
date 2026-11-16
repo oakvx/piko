@@ -40,6 +40,16 @@ export class PikoClient {
   }
 
   health() { return this.request<Health>('/health'); }
+  coachStatus() {
+    return this.request<{ active: boolean; stage: string; advice: string | null;
+      observed_at: string | null; error: string | null; frames: number }>('/coach');
+  }
+  startCoach(executable: string, window_handle: number) {
+    return this.request('/coach/start', { method: 'POST',
+      body: JSON.stringify({ executable, window_handle, consent: true,
+        interval_seconds: 4, seconds: 1800 }) });
+  }
+  stopCoach() { return this.request('/coach/stop', { method: 'POST' }); }
   setup() {
     return this.request<{
       stage: string; progress: number; error: string | null;
