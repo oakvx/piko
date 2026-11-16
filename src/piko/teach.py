@@ -293,6 +293,14 @@ class TeachRecorder:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         observations = [event["data"] for event in manifest["events"]
                         if event["type"] == "observation"]
+        # Only exposed explicit stable IDs are offered to the correction
+        # editor. Control names and values remain redacted; these are NOT
+        # inferred instructions, only reviewed UIA selector candidates.
+        observed_targets = sorted({
+            (el["automation_id"], el.get("control_type") or "")
+            for observed in observations for el in observed["elements"]
+            if el.get("automation_id") and not el.get("is_password")
+        })
         clicks = [event for event in manifest["events"]
                   if event["type"] == "input.mouse_click" and event.get("button") == "left"]
         steps = []
@@ -326,6 +334,10 @@ class TeachRecorder:
             "frames": manifest["frames"],
             "input_events": len([e for e in manifest["events"] if e["type"].startswith("input.")]),
             "steps": steps,
+            "observed_targets": [
+                {"automation_id": target, "control_type": control}
+                for target, control in observed_targets[:200]
+            ],
             "uncertainties": [
                 "Click targeting is geometric and tentative; review UIA selectors",
                 "Expected outcomes, parameters and task goal require user correction",

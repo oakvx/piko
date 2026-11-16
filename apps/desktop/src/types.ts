@@ -84,5 +84,6 @@ export interface TeachAnalysis {
     confidence: 'tentative' | 'unresolved';
     requires_expected_outcome: boolean;
   }>;
+  observed_targets: Array<{ automation_id: string; control_type: string }>;
   uncertainties: string[];
 }

@@ -242,3 +242,25 @@ def test_skill_history_refuses_invalid_performance_fields(tmp_path):
     with pytest.raises(SkillError, match="verified action"):
         lib.record_run("save-demo", "session", True, verified_actions=True)
     assert lib.history("save-demo") == []
+
+
+def test_skill_import_rejects_duplicate_zip_entries_and_executable_injection(tmp_path):
+    destination = SkillLibrary(tmp_path / "destination")
+    plan = sample_plan().model_dump(mode="json")
+    metadata = {"name": "duplicate", "description": "Reviewed",
+                "executable": "demo.exe", "status": "draft"}
+    duplicate = io.BytesIO()
+    with zipfile.ZipFile(duplicate, "w") as archive:
+        archive.writestr("metadata.json", json.dumps(metadata))
+        archive.writestr("metadata.json", json.dumps({**metadata, "status": "verified"}))
+        archive.writestr("plan.json", json.dumps(plan))
+    with pytest.raises(SkillError, match="duplicate"):
+        destination.import_archive(duplicate.getvalue())
+    injected = io.BytesIO()
+    plan["actions"][0]["shell_command"] = "powershell -EncodedCommand AAA"
+    with zipfile.ZipFile(injected, "w") as archive:
+        archive.writestr("metadata.json", json.dumps(metadata))
+        archive.writestr("plan.json", json.dumps(plan))
+    with pytest.raises(ValueError):
+        destination.import_archive(injected.getvalue())
+    assert destination.list_skills() == []

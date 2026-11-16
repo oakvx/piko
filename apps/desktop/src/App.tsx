@@ -3,6 +3,7 @@ import { invoke as tauriInvoke, isTauri } from '@tauri-apps/api/core';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { PikoClient } from './client';
 import PikoGlyph from './PikoGlyph';
+import TeachStepEditor from './TeachStepEditor';
 import type { AgentEvent, AgentState, Demonstration, Health, Lens, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
 
 const stateText: Record<AgentState, string> = {
@@ -162,6 +163,7 @@ export default function App() {
   const [demonstration, setDemonstration] = useState<Demonstration | null>(null);
   const [teachAnalysis, setTeachAnalysis] = useState<TeachAnalysis | null>(null);
   const [teachPlanJson, setTeachPlanJson] = useState('');
+  const [teachCorrectionConfirmed, setTeachCorrectionConfirmed] = useState(false);
   const [teachSlug, setTeachSlug] = useState('');
   const [teachDescription, setTeachDescription] = useState('');
   const [slug, setSlug] = useState('');
@@ -300,6 +302,7 @@ export default function App() {
     void attempt('teach-analysis', async () => {
       const analysis = await client.analyzeTeach(demonstration.id);
       setTeachAnalysis(analysis);
+      setTeachCorrectionConfirmed(false);
       const actions = analysis.steps.filter(step => step.automation_id).map(step => ({
         kind: 'ui.click',
         automation_id: step.automation_id,
@@ -322,10 +325,11 @@ export default function App() {
 
   const saveCorrectedDemonstration = (event: FormEvent) => {
     event.preventDefault();
-    if (!client || !demonstration || !teachAnalysis) return;
+    if (!client || !demonstration || !teachAnalysis || !teachCorrectionConfirmed) return;
     void attempt('teach-correction', async () => {
       const plan = JSON.parse(teachPlanJson) as Plan;
-      await client.saveTeachDraft(demonstration.id, teachSlug, teachDescription, plan);
+      await client.saveTeachDraft(
+        demonstration.id, teachSlug, teachDescription, plan, teachCorrectionConfirmed);
       setSkills(await client.skills());
       setNotice('Corrected procedure saved as a DRAFT. Run it under a separate approval to test.');
     });
@@ -485,9 +489,19 @@ export default function App() {
               <input id="teach-draft-slug" pattern="[a-z0-9][a-z0-9-]{0,63}" value={teachSlug} onChange={e => setTeachSlug(e.target.value)} required />
               <label htmlFor="teach-draft-desc">Description</label>
               <input id="teach-draft-desc" value={teachDescription} onChange={e => setTeachDescription(e.target.value)} required />
-              <label htmlFor="teach-corrected-plan">Correct each selector, objective and expected outcome (strict JSON)</label>
-              <textarea id="teach-corrected-plan" rows={10} value={teachPlanJson} onChange={e => setTeachPlanJson(e.target.value)} required />
-              <button type="submit" disabled={!!busy || !connected || teachAnalysis.input_events < 1}>Save reviewed draft <Mark name="plus" size={15} /></button>
+              <TeachStepEditor value={teachPlanJson}
+                targets={teachAnalysis.observed_targets ?? []}
+                onChange={value => { setTeachPlanJson(value); setTeachCorrectionConfirmed(false); }} />
+              <details className="teach-advanced-editor"><summary>Advanced typed JSON procedure</summary>
+                <label htmlFor="teach-corrected-plan">Strict JSON — edited steps still require observable UIA targets</label>
+                <textarea id="teach-corrected-plan" rows={10} value={teachPlanJson}
+                  onChange={e => { setTeachPlanJson(e.target.value); setTeachCorrectionConfirmed(false); }} />
+              </details>
+              <label className="consent-line"><input type="checkbox"
+                checked={teachCorrectionConfirmed} onChange={e => setTeachCorrectionConfirmed(e.target.checked)} />
+                <span>I reviewed and corrected every selector, parameter and expected outcome. This remains an unverified draft.</span>
+              </label>
+              <button type="submit" disabled={!!busy || !connected || teachAnalysis.input_events < 1 || !teachCorrectionConfirmed}>Save reviewed draft <Mark name="plus" size={15} /></button>
             </form>
           </section>}
         </div>

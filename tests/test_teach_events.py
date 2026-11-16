@@ -75,6 +75,13 @@ async def test_teach_scoped_timeline_and_tentative_uia_grounding(tmp_path):
     assert analysis["steps"][0]["automation_id"] == "Save"
     assert analysis["steps"][0]["confidence"] == "tentative"
     assert analysis["status"] == "needs_review"
+    assert {tuple(item.values()) for item in analysis["observed_targets"]} >= {
+        ("Save", "Button"), ("Status", "Text"),
+    }
+    # Dynamic name-derived identifiers and user-visible text never become
+    # reusable selector suggestions.
+    assert all("SENSITIVE" not in item["automation_id"]
+               for item in analysis["observed_targets"])
 
 
 @pytest.mark.asyncio
@@ -102,6 +109,11 @@ async def test_teach_user_correction_requires_outcome_and_explicit_confirmation(
         weak = json.loads(json.dumps(body))
         weak["plan"]["actions"][-1]["expected"] = {"automation_id": "Save", "property": "exists"}
         assert (await client.post(url, headers=auth, json=weak)).status_code == 409
+        unobserved_outcome = json.loads(json.dumps(body))
+        unobserved_outcome["plan"]["actions"][-1]["expected"]["automation_id"] = "UnknownStatus"
+        blocked = await client.post(url, headers=auth, json=unobserved_outcome)
+        assert blocked.status_code == 409
+        assert "unobserved" in blocked.json()["detail"]
         response = await client.post(url, headers=auth, json=body)
         assert response.status_code == 200
         assert response.json()["verified"] is False

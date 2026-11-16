@@ -179,8 +179,14 @@ class SkillLibrary:
         try:
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
                 infos = archive.infolist()
-                if set(info.filename for info in infos) != {"metadata.json", "plan.json"}:
-                    raise SkillError("Unexpected archive entries or executable extensions")
+                # A duplicate filename is ambiguous to ZIP readers and can
+                # hide substituted instructions behind benign-looking metadata.
+                if len(infos) != 2 or {info.filename for info in infos} != {
+                    "metadata.json", "plan.json",
+                }:
+                    raise SkillError("Unexpected or duplicate archive entries or executable extensions")
+                if any(info.flag_bits & 0x1 for info in infos):
+                    raise SkillError("Encrypted Skill archives are not supported")
                 if any(info.file_size > 250_000 or info.is_dir() for info in infos):
                     raise SkillError("Oversized or invalid Skill entry")
                 metadata = json.loads(archive.read("metadata.json"))

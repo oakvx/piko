@@ -104,10 +104,13 @@ export class PikoClient {
   analyzeTeach(id: string) {
     return this.request<TeachAnalysis>(`/teach/${encodeURIComponent(id)}/analysis`);
   }
-  saveTeachDraft(id: string, slug: string, description: string, plan: Plan) {
+  saveTeachDraft(id: string, slug: string, description: string,
+                 plan: Plan, confirmedUserCorrections: boolean) {
     return this.request(`/teach/${encodeURIComponent(id)}/draft`, {
       method: 'POST',
-      body: JSON.stringify({ slug, description, plan, confirmed_user_corrections: true }),
+      body: JSON.stringify({
+        slug, description, plan, confirmed_user_corrections: confirmedUserCorrections,
+      }),
     });
   }
   stopTeach() { return this.request<Demonstration>('/teach/stop', { method: 'POST' }); }
