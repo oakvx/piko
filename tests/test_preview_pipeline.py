@@ -140,17 +140,20 @@ def test_real_ollama_acceptance_runs_on_relevant_main_changes_and_requires_both_
     assert "pull_request:" not in contents
     assert "push:" in contents
     assert "tests/real/test_ollama_inference.py" in contents
+    assert "tests/real/test_ollama_windows_agent.py" in contents
     assert ".github/workflows/real-ollama.yml" in contents
     assert list(workflow["jobs"]) == ["real-ollama-windows"]
     job = workflow["jobs"]["real-ollama-windows"]
     assert job["runs-on"] == "windows-latest"
     assert job["env"]["PIKO_REAL_OLLAMA"] == "1"
+    assert job["env"]["PIKO_GUI_SMOKE"] == "1"
     assert job["env"]["PIKO_OLLAMA_REASONING_MODEL"]
     assert job["env"]["PIKO_OLLAMA_VISION_MODEL"]
     commands = "\n".join(step.get("run", "") for step in job["steps"])
     assert "Get-FileHash" in commands
     assert "ollama-windows-amd64.zip" in commands
     assert "tests/real/test_ollama_inference.py" in commands
+    assert "tests/real/test_ollama_windows_agent.py" in commands
     assert "--junitxml=acceptance/real-ollama-windows.xml" in commands
     assert any(step.get("if") == "always()" and
                step.get("with", {}).get("path") == "acceptance/"
