@@ -40,6 +40,20 @@ export class PikoClient {
   }
 
   health() { return this.request<Health>('/health'); }
+  setup() {
+    return this.request<{
+      stage: string; progress: number; error: string | null;
+      reasoning: string | null; vision: string | null; running: boolean;
+      ollama_installed: boolean;
+      hardware: { ram_gb: number; cpu_cores: number; gpu_vram_gb: number | null;
+                  free_disk_gb: number; reasoning_model: string;
+                  vision_model: string | null; estimate_download_gb: number; note: string };
+    }>('/setup');
+  }
+  installLocalAI(reasoning_model: string, vision_model: string | null) {
+    return this.request('/setup/install', { method: 'POST',
+      body: JSON.stringify({ reasoning_model, vision_model, confirm_download: true }) });
+  }
   models() { return this.request<{ installed: ModelInfo[]; reasoning: string | null; vision: string | null }>('/models'); }
   selectModels(reasoning_model: string, vision_model: string | null) {
     return this.request<{ reasoning: string; vision: string | null }>('/models/selection', {
