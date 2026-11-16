@@ -18,6 +18,12 @@ def test_preview_gating_and_release_files():
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke"]
     assert "rust-dependency-audit" in jobs
+    rust_scan_steps = jobs["rust-dependency-audit"]["steps"]
+    rust_scan = "\n".join(step.get("run", "") for step in rust_scan_steps)
+    assert "cargo install --locked --version 0.23.0 cargo-audit" in rust_scan
+    assert "cargo audit --file apps/desktop/src-tauri/Cargo.lock" in rust_scan
+    assert not any("rustsec/audit-check" in step.get("uses", "") for step in rust_scan_steps)
+    assert jobs["rust-dependency-audit"].get("permissions", {}).get("checks") != "write"
     assert "npm ci" in "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
     assert "cargo metadata --locked" in "\n".join(
         step.get("run", "") for step in jobs["windows-installer"]["steps"])
