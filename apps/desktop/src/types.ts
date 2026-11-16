@@ -60,6 +60,7 @@ export interface Observation {
   window_title: string;
   process_id: number;
   executable: string;
+  window_handle?: number | null;
   elements: { automation_id: string; name: string; control_type: string; bounds: [number, number, number, number] | null }[];
   capture_bounds: [number, number, number, number] | null;
   image_base64: string;
@@ -69,4 +70,18 @@ export interface Demonstration {
   frames: number;
   recording: boolean;
   limitations: string[];
+}
+
+export interface TeachAnalysis {
+  id: string;
+  frames: number;
+  input_events: number;
+  status: 'needs_review';
+  steps: Array<{
+    kind: 'ui.click';
+    automation_id: string | null;
+    confidence: 'tentative' | 'unresolved';
+    requires_expected_outcome: boolean;
+  }>;
+  uncertainties: string[];
 }

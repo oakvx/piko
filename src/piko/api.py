@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from contextlib import asynccontextmanager
 import os
 import secrets
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from piko.contracts import AccessProfile, Grant, SessionState
+from piko.contracts import AccessProfile, Grant, Plan, SessionState
 from piko.memory import LocalMemory
 from piko.ollama import OllamaProvider
 from piko.orchestrator import Agent
@@ -42,6 +45,26 @@ class SkillRequest(BaseModel):
     description: str
 
 
+class SkillImportRequest(BaseModel):
+    archive_base64: str = Field(min_length=1, max_length=1_500_000)
+
+
+class SkillReviewRequest(BaseModel):
+    authorize_foreground_app: bool
+
+
+class SkillRevisionRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=500)
+    plan: Plan
+
+
+class TeachDraftRequest(BaseModel):
+    slug: str = Field(min_length=1, max_length=64)
+    description: str = Field(min_length=1, max_length=500)
+    plan: Plan
+    confirmed_user_corrections: bool = False
+
+
 def data_root() -> Path:
     return Path(os.environ.get("PIKO_DATA_DIR") or
                 (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Piko"))
@@ -60,6 +83,16 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     skills = SkillLibrary((root or data_root()) / "skills")
     teach = TeachRecorder(desktop, (root or data_root()) / "demonstrations")
     running: dict[str, asyncio.Task] = {}
+    skill_runs: dict[str, str] = {}
+
+    async def run_and_record(session_id: str):
+        result = await agent.run(session_id)
+        skill_slug = skill_runs.pop(session_id, None)
+        if skill_slug:
+            # A passing session is evidence, not automatic Skill certification.
+            skills.record_run(skill_slug, session_id,
+                              succeeded=result.state == SessionState.COMPLETED)
+        return result
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         yield
@@ -154,7 +187,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             raise HTTPException(status_code=409, detail="Approve only a reviewed pending plan")
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Another session currently controls inputs")
-        running[sid] = asyncio.create_task(agent.run(sid))
+        running[sid] = asyncio.create_task(run_and_record(sid))
         return {"accepted": True, "session_id": sid}
 
     @app.post("/sessions/{sid}/pause", dependencies=[Depends(auth)])
@@ -175,7 +208,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             agent.resume(sid)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        running[sid] = asyncio.create_task(agent.run(sid))
+        running[sid] = asyncio.create_task(run_and_record(sid))
         return {"accepted": True, "session_id": sid}
 
     @app.get("/sessions/{sid}/observation", dependencies=[Depends(auth)])
@@ -217,6 +250,70 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     @app.get("/skills", dependencies=[Depends(auth)])
     async def get_skills():
         return skills.list_skills()
+
+    @app.post("/skills/import", dependencies=[Depends(auth)])
+    async def import_skill(request: SkillImportRequest):
+        try:
+            payload = base64.b64decode(request.archive_base64, validate=True)
+            folder = skills.import_archive(payload)
+            return {"name": folder.name, "status": "draft", "verified": False}
+        except (ValueError, OSError, binascii.Error) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/skills/{slug}/export", dependencies=[Depends(auth)])
+    async def export_skill(slug: str):
+        try:
+            archive = skills.export_archive(slug)
+            return Response(archive, media_type="application/zip",
+                            headers={"Content-Disposition":
+                                     f'attachment; filename="{slug}.piko-skill.zip"'})
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/skills/{slug}/revisions", dependencies=[Depends(auth)])
+    async def skill_revisions(slug: str):
+        try:
+            return {"revisions": skills.revisions(slug)}
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/skills/{slug}/rollback/{revision}", dependencies=[Depends(auth)])
+    async def rollback_skill(slug: str, revision: int):
+        try:
+            return skills.rollback_draft(slug, revision)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/skills/{slug}/review", dependencies=[Depends(auth)])
+    async def review_skill(slug: str, request: SkillReviewRequest):
+        if not request.authorize_foreground_app:
+            raise HTTPException(status_code=403, detail="Explicit app consent required")
+        if any(not task.done() for task in running.values()):
+            raise HTTPException(status_code=409, detail="Desktop inputs currently in use")
+        try:
+            executable, plan = skills.load_plan(slug)
+            session = agent.create(plan.objective, executable)
+            permissions.grant(Grant(executable=executable, profile=AccessProfile.LIMITED,
+                                    session_id=session.id))
+            prepared = await agent.prepare_from_plan(session.id, plan)
+            skill_runs[session.id] = slug
+            return prepared
+        except (ValueError, PermissionError, RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/skills/{slug}/history", dependencies=[Depends(auth)])
+    async def skill_history(slug: str):
+        try:
+            return skills.history(slug)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/skills/{slug}/revise", dependencies=[Depends(auth)])
+    async def revise_skill(slug: str, request: SkillRevisionRequest):
+        try:
+            return skills.revise_draft(slug, request.description, request.plan)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/sessions/{sid}/save-skill", dependencies=[Depends(auth)])
     async def save_skill(sid: str, request: SkillRequest):
@@ -261,6 +358,43 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             return {"id": result["id"], "frames": result["frames"], "recording": False,
                     "limitations": result["limitations"]}
         except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/teach/{identifier}/analysis", dependencies=[Depends(auth)])
+    async def teach_analysis(identifier: str):
+        try:
+            return teach.analyze(identifier)
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/teach/{identifier}/draft", dependencies=[Depends(auth)])
+    async def teach_save_corrected_draft(identifier: str, request: TeachDraftRequest):
+        if not request.confirmed_user_corrections:
+            raise HTTPException(status_code=403, detail="User correction review required")
+        try:
+            analysis = teach.analyze(identifier)
+            # Observations alone are NOT evidence of a demonstration procedure.
+            if analysis["input_events"] < 1:
+                raise ValueError("No permitted input events to learn from")
+            manifest_path = teach.root / identifier / "manifest.json"
+            import json
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            known = {el["automation_id"]
+                     for event in manifest["events"] if event["type"] == "observation"
+                     for el in event["data"]["elements"] if el["automation_id"]}
+            for action in request.plan.actions:
+                if action.automation_id and action.automation_id not in known:
+                    raise ValueError("Corrected Skill action has an unobserved UI target")
+            if request.plan.actions[-1].expected.property == "exists":
+                raise ValueError("A pre-existing element cannot prove final task success")
+            if any(a.expected.value == "REPLACE_WITH_OBSERVED_OUTCOME"
+                   for a in request.plan.actions):
+                raise ValueError("Enter concrete expected outcomes before saving")
+            folder = skills.save_draft(request.slug, request.description, manifest["app"],
+                                       request.plan)
+            return {"saved": folder.name, "status": "draft", "verified": False,
+                    "source_demonstration": identifier}
+        except (ValueError, RuntimeError, OSError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.delete("/teach/{identifier}", dependencies=[Depends(auth)])

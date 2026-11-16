@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke as tauriInvoke, isTauri } from '@tauri-apps/api/core';
-import type { FormEvent, ReactNode } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { PikoClient } from './client';
 import PikoGlyph from './PikoGlyph';
-import type { AgentEvent, AgentState, Demonstration, Health, Lens, ModelInfo, Observation, Session, Skill } from './types';
+import type { AgentEvent, AgentState, Demonstration, Health, Lens, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
 
 const stateText: Record<AgentState, string> = {
   idle: 'Ready to observe', observing: 'Reading the desktop', analyzing: 'Interpreting',
@@ -153,11 +153,16 @@ export default function App() {
   const [chosenReasoning, setChosenReasoning] = useState('');
   const [chosenVision, setChosenVision] = useState('');
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillConsent, setSkillConsent] = useState(false);
   const [teachExecutable, setTeachExecutable] = useState('');
   const [teachConsent, setTeachConsent] = useState(false);
   const [teachSeconds, setTeachSeconds] = useState(30);
   const [recording, setRecording] = useState(false);
   const [demonstration, setDemonstration] = useState<Demonstration | null>(null);
+  const [teachAnalysis, setTeachAnalysis] = useState<TeachAnalysis | null>(null);
+  const [teachPlanJson, setTeachPlanJson] = useState('');
+  const [teachSlug, setTeachSlug] = useState('');
+  const [teachDescription, setTeachDescription] = useState('');
   const [slug, setSlug] = useState('');
   const [skillDescription, setSkillDescription] = useState('');
 
@@ -279,8 +284,8 @@ export default function App() {
     void attempt('teach-start', async () => {
       await client.grant(teachExecutable.trim(), 'observe', 'teach');
       const result = await client.startTeach(teachExecutable.trim(), teachSeconds);
-      setRecording(result.recording); setDemonstration(null);
-      setNotice('Recording authorized observations. Raw input events are not supported yet.');
+      setRecording(result.recording); setDemonstration(null); setTeachAnalysis(null);
+      setNotice('Recording scoped observations and permitted structural input events. Typed characters are excluded.');
     });
   };
 
@@ -289,12 +294,108 @@ export default function App() {
     void attempt('teach-stop', async () => { setDemonstration(await client.stopTeach()); setRecording(false); });
   };
 
+  const analyzeDemonstration = () => {
+    if (!client || !demonstration) return;
+    void attempt('teach-analysis', async () => {
+      const analysis = await client.analyzeTeach(demonstration.id);
+      setTeachAnalysis(analysis);
+      const actions = analysis.steps.filter(step => step.automation_id).map(step => ({
+        kind: 'ui.click',
+        automation_id: step.automation_id,
+        text: null,
+        keys: [],
+        timeout_seconds: 5,
+        expected: {
+          automation_id: step.automation_id,
+          property: 'text_equals',
+          value: 'REPLACE_WITH_OBSERVED_OUTCOME',
+        },
+      }));
+      setTeachPlanJson(JSON.stringify({
+        objective: 'Describe the demonstrated outcome',
+        explanation: 'User-reviewed and corrected procedure from a Teach recording',
+        actions,
+      }, null, 2));
+    });
+  };
+
+  const saveCorrectedDemonstration = (event: FormEvent) => {
+    event.preventDefault();
+    if (!client || !demonstration || !teachAnalysis) return;
+    void attempt('teach-correction', async () => {
+      const plan = JSON.parse(teachPlanJson) as Plan;
+      await client.saveTeachDraft(demonstration.id, teachSlug, teachDescription, plan);
+      setSkills(await client.skills());
+      setNotice('Corrected procedure saved as a DRAFT. Run it under a separate approval to test.');
+    });
+  };
+
   const storeDraft = (event: FormEvent) => {
     event.preventDefault();
     if (!client || !session?.plan) return;
     void attempt('skill', async () => {
       await client.saveSkill(session.id, slug.trim(), skillDescription.trim());
       setSkills(await client.skills()); setNotice('Draft saved. It has not been generalized or verified as a reusable Skill.');
+    });
+  };
+
+  const importSkillArchive = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!client || !file) return;
+    void attempt('skill-import', async () => {
+      if (file.size > 1_000_000) throw new Error('Archive exceeds the 1 MB import limit.');
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('Cannot read Skill archive.'));
+        reader.readAsDataURL(file);
+      });
+      const encoded = dataUrl.split(',', 2)[1];
+      if (!encoded) throw new Error('Invalid Skill archive.');
+      await client.importSkill(encoded);
+      setSkills(await client.skills());
+      setNotice('Imported Skill is a draft; external instructions are never executed.');
+    });
+  };
+
+  const exportSkillArchive = (name: string) => {
+    if (!client) return;
+    void attempt('skill-export', async () => {
+      const blob = await client.exportSkill(name);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${name}.piko-skill.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    });
+  };
+
+  const rollbackSkillDraft = (name: string) => {
+    if (!client) return;
+    void attempt('skill-rollback', async () => {
+      const available = await client.skillRevisions(name);
+      const last = available.revisions.at(-1);
+      if (!last) throw new Error('No archived revision is available.');
+      if (!window.confirm(`Restore revision ${last} of ${name} as a new draft?`)) return;
+      await client.rollbackSkill(name, last);
+      setSkills(await client.skills());
+      setNotice('Previous draft restored as a new revision. Verification status is unchanged.');
+    });
+  };
+
+  const reviewSavedSkill = (name: string) => {
+    if (!client || !skillConsent) return;
+    void attempt('skill-review', async () => {
+      const prepared = await client.reviewSkill(name);
+      await refresh();
+      setSession(prepared);
+      setFrame(null);
+      setReviewed(false);
+      setSkillConsent(false);
+      setLens('work');
+      setNotice('Skill loaded for review. Approve the route separately before executing.');
     });
   };
 
@@ -368,13 +469,35 @@ export default function App() {
 
       {lens === 'teach' && <div className="mode-layout teach-layout">
         <div className="teach-stage"><div className="panel-top"><Kicker index="A">Demonstration studio</Kicker><span className={`record-indicator${recording ? ' record-indicator--active' : ''}`}><span />{recording ? 'CAPTURING' : 'NOT RECORDING'}</span></div><div className="teach-visual"><span className="teach-visual-grid" /><div className="teach-persona"><PikoGlyph state={recording ? 'observing' : 'idle'} /></div><div className="teach-wave teach-wave-a" /><div className="teach-wave teach-wave-b" /><span className="teach-mode-caption">{recording ? 'AUTHORIZED WINDOW OBSERVATION' : 'WAITING FOR YOUR DEMONSTRATION'}</span></div>
-          <div className="teach-limits"><Kicker>What this version records</Kicker><p>Opt-in foreground screenshots and UI Automation observations. It does <strong>not</strong> capture keyboard or mouse events, infer a procedure, or generate a learned Skill yet. Sensitive windows are excluded.</p></div>
-          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p></div><button type="button" disabled={!!busy} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
+          <div className="teach-limits"><Kicker>What this version records</Kicker><p>Opt-in foreground screenshots, UIA observations and permitted click/scroll/special-key events on Windows. Raw typed characters are excluded. Inferred steps are tentative until reviewed and tested.</p></div>
+          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p><button type="button" className="system-secondary" disabled={!!busy || recording} onClick={analyzeDemonstration}>Analyze evidence <Mark name="arrow" size={15} /></button></div><button type="button" disabled={!!busy || recording} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); setTeachAnalysis(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
+          {teachAnalysis && <section className="skill-seed" aria-label="Teach correction editor">
+            <div><Kicker>Evidence → correction</Kicker><h3>{teachAnalysis.input_events} permitted events · {teachAnalysis.steps.length} candidate steps</h3><p>{teachAnalysis.uncertainties.join('. ')}. Unresolved steps must be supplied manually; this is not autonomous learning yet.</p></div>
+            <form className="skill-form" onSubmit={saveCorrectedDemonstration}>
+              <label htmlFor="teach-draft-slug">Draft name</label>
+              <input id="teach-draft-slug" pattern="[a-z0-9][a-z0-9-]{0,63}" value={teachSlug} onChange={e => setTeachSlug(e.target.value)} required />
+              <label htmlFor="teach-draft-desc">Description</label>
+              <input id="teach-draft-desc" value={teachDescription} onChange={e => setTeachDescription(e.target.value)} required />
+              <label htmlFor="teach-corrected-plan">Correct each selector, objective and expected outcome (strict JSON)</label>
+              <textarea id="teach-corrected-plan" rows={10} value={teachPlanJson} onChange={e => setTeachPlanJson(e.target.value)} required />
+              <button type="submit" disabled={!!busy || !connected || teachAnalysis.input_events < 1}>Save reviewed draft <Mark name="plus" size={15} /></button>
+            </form>
+          </section>}
         </div>
         <section className="teach-controls"><div className="panel-top"><Kicker index="B">Your recording boundary</Kicker></div><h2>You show.<br /><em>Piko observes.</em></h2><form onSubmit={createDemo}><label htmlFor="teach-app">Approved foreground application</label><input id="teach-app" placeholder="application.exe" value={teachExecutable} onChange={e => { setTeachExecutable(e.target.value); setTeachConsent(false); }} disabled={recording || !!busy} required /><label htmlFor="teach-duration">Maximum duration</label><div className="duration-choices" id="teach-duration">{[15, 30, 60, 120].map(seconds => <button key={seconds} type="button" aria-pressed={teachSeconds === seconds} className={teachSeconds === seconds ? 'duration--chosen' : ''} onClick={() => setTeachSeconds(seconds)} disabled={recording || !!busy}>{seconds}s</button>)}</div><label className="consent-line"><input type="checkbox" checked={teachConsent} onChange={e => setTeachConsent(e.target.checked)} disabled={recording || !!busy} /><span>I authorize time-limited recording of this foreground application.</span></label>{recording ? <button className="primary-button primary-button--stop" type="button" disabled={!!busy} onClick={stopDemo}><Mark name="stop" /> Stop watching</button> : <button className="primary-button" type="submit" disabled={!teachConsent || !teachExecutable.trim() || isBlockedByWork || !connected}><Mark name="eye" /> Watch me</button>}</form></section>
       </div>}
 
-      {lens === 'skills' && <section className="library-board"><div className="panel-top"><Kicker index="A">Procedural library</Kicker><span className="panel-annotation">LOCAL FILES ONLY</span></div><div className="library-summary"><div><h2>{skills.length.toString().padStart(2, '0')}<span> / saved drafts and skills</span></h2><p>Every item keeps its verification status. Drafts have not been proven to generalize.</p></div><button type="button" onClick={() => client && invoke('skills', async () => { setSkills(await client.skills()); })} disabled={!!busy || !connected}><Mark name="refresh" size={16} /> Reload library</button></div>{skills.length ? <div className="library-list">{skills.map(item => <article key={item.name} className="library-card"><div className="library-glyph">✳</div><div><span className="library-state">{item.status.toUpperCase()} / {item.version}</span><h3>{item.name}</h3><p>{item.description}</p><span className="library-info">{item.executable} · {item.actions} actions</span></div></article>)}</div> : <div className="library-empty"><span className="library-star">✳</span><h3>Nothing here. Yet.</h3><p>Once you save a reviewed route, its Markdown Skill draft will appear here.</p><button type="button" onClick={() => setLens('work')}>Compose a route <Mark name="arrow" size={17} /></button></div>}</section>}
+      {lens === 'skills' && <section className="library-board"><div className="panel-top"><Kicker index="A">Procedural library</Kicker><span className="panel-annotation">LOCAL FILES ONLY</span></div><div className="library-summary"><div><h2>{skills.length.toString().padStart(2, '0')}<span> / saved drafts and skills</span></h2><p>Every item keeps its verification status. Drafts have not been proven to generalize.</p></div><button type="button" onClick={() => client && invoke('skills', async () => { setSkills(await client.skills()); })} disabled={!!busy || !connected}><Mark name="refresh" size={16} /> Reload library</button></div><label htmlFor="skill-import-zip">Import locally reviewed Skill archive (.zip)</label><input id="skill-import-zip" type="file" accept=".zip" disabled={!!busy || !connected} onChange={importSkillArchive} />
+        <label className="consent-line"><input type="checkbox" checked={skillConsent} disabled={!!busy || !connected} onChange={e => setSkillConsent(e.target.checked)} /><span>I authorize Piko to inspect the foreground application before reviewing a saved Skill. Execution requires a second approval.</span></label>{skills.length ? <div className="library-list">{skills.map(item => <article key={item.name} className="library-card"><div className="library-glyph">✳</div><div><span className="library-state">{item.status.toUpperCase()} / {item.version}</span><h3>{item.name}</h3><p>{item.description}</p><span className="library-info">{item.executable} · {item.actions} actions</span>
+            <div className="execution-controls">
+              <button type="button" className="system-secondary" disabled={!skillConsent || !!busy || !connected} onClick={() => reviewSavedSkill(item.name)}>Review procedure <Mark name="arrow" size={15} /></button>
+              <button type="button" className="system-secondary" disabled={!!busy || !connected} onClick={() => exportSkillArchive(item.name)}>Export ZIP</button>
+              <button type="button" className="system-secondary" disabled={!!busy || !connected || item.status !== 'draft'} onClick={() => rollbackSkillDraft(item.name)}>Rollback draft</button>
+              <button type="button" className="system-secondary" disabled={!!busy || !connected} onClick={() => client && invoke('skill-history', async () => {
+                const history = await client.skillHistory(item.name);
+                setNotice(`${item.name}: ${history.length} executions recorded; ${history.filter(x => x.completed).length} completed. No automatic certification.`);
+              })}>History</button>
+            </div></div></article>)}</div> : <div className="library-empty"><span className="library-star">✳</span><h3>Nothing here. Yet.</h3><p>Once you save a reviewed route, its Markdown Skill draft will appear here.</p><button type="button" onClick={() => setLens('work')}>Compose a route <Mark name="arrow" size={17} /></button></div>}</section>}
 
       {lens === 'system' && <div className="system-board"><section className="system-card"><Kicker index="01">Runtime</Kicker><h2>Local by design.</h2><div className="system-property"><span>Connection</span><strong>{connected ? 'Loopback / active' : 'Disconnected'}</strong></div><div className="system-property"><span>Transport</span><strong>127.0.0.1:{backendPort}</strong></div><div className="system-property"><span>Host platform</span><strong>{health?.platform || 'Unavailable'}</strong></div><div className="system-property"><span>Active input sessions</span><strong>{health ? health.active_session_count : 'Unknown'}</strong></div><button type="button" className="system-secondary" onClick={() => { setToken(''); setHealth(null); setFrame(null); setSession(null); setConnected(false); }}><Mark name="close" size={16} /> Disconnect this window</button></section>
         <section className="system-card"><Kicker index="02">Inference</Kicker><h2>On-device intelligence.</h2><div className="system-property"><span>Reasoning model</span><strong>{modelSelection.reasoning || 'Not reported'}</strong></div><div className="system-property"><span>Vision model</span><strong>{modelSelection.vision || 'Not configured'}</strong></div><div className="system-property"><span>Ollama discovery</span><strong>{modelError ? 'Unavailable' : models === null ? 'Checking…' : `${models.length} installed`}</strong></div>{modelError && <p className="inline-error">{modelError}</p>}<div className="model-list">{models?.map(model => <div key={model.name}><strong>{model.name}</strong><small>{model.details?.parameter_size || 'Parameter size not reported'}</small></div>)}</div>

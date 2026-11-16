@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import queue
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -30,6 +32,9 @@ class TeachRecorder:
         self._task: asyncio.Task | None = None
         self._events: list[dict] = []
         self._app = ""
+        self._event_queue: queue.SimpleQueue[dict] = queue.SimpleQueue()
+        self._listener_stop = None
+        self._event_capture_available = False
 
     async def start(self, executable: str, seconds: int = 30) -> str:
         if self.active_id is not None:
@@ -47,14 +52,33 @@ class TeachRecorder:
         self._app = executable.casefold()
         self._stop.clear()
         self._events = []
-        (self.root / self.active_id).mkdir(mode=0o700)
+        folder = self.root / self.active_id
+        folder.mkdir(mode=0o700)
+        start_events = getattr(self.desktop, "start_teach_events", None)
+        self._event_capture_available = start_events is not None
+        self._event_queue = queue.SimpleQueue()
+        if start_events is not None:
+            try:
+                self._listener_stop = start_events(
+                    self._app, snapshot.window_handle, self._enqueue_event)
+            except Exception as exc:
+                self.active_id = None
+                shutil.rmtree(folder)
+                raise TeachError(f"Cannot start scoped Teach input capture: {exc}") from exc
         self._task = asyncio.create_task(self._record(self.active_id, seconds))
         return self.active_id
 
+    def _enqueue_event(self, event: dict) -> None:
+        event["timestamp"] = datetime.now(timezone.utc).isoformat()
+        self._event_queue.put(event)
+
+    def _drain_events(self) -> None:
+        while not self._event_queue.empty():
+            self._events.append(self._event_queue.get_nowait())
+
     async def _record(self, identifier: str, seconds: int) -> None:
-        # Keyboard event listener is intentionally omitted from this foundation:
-        # global hooks risk capturing private input in another application.
-        # UIA snapshots preserve sanitized text fields within authorized app.
+        # Mouse/special-key events are strictly scoped by the Windows bridge;
+        # raw text and passwords are never recorded in the event stream.
         folder = self.root / identifier
         started = time.monotonic()
         frames = 0
@@ -83,15 +107,25 @@ class TeachRecorder:
                         frames += 1
                 except Exception as exc:
                     self._events.append({"type": "capture.skipped", "reason": type(exc).__name__})
+                self._drain_events()
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=1)
                 except asyncio.TimeoutError:
                     pass
         finally:
+            if self._listener_stop is not None:
+                self._listener_stop()
+                self._listener_stop = None
+            self._drain_events()
+            self._events.sort(key=lambda e: e.get("timestamp") or e.get("data", {}).get("timestamp") or "")
             (folder / "manifest.json").write_text(json.dumps({
                 "id": identifier, "app": self._app, "frames": frames,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
-                "limitations": ["Keyboard and mouse event replay not recorded in this milestone"],
+                "limitations": (
+                    ["Input-event recorder unavailable on this desktop adapter"]
+                    if not self._event_capture_available else
+                    ["Raw typed characters are intentionally excluded; all inferred steps need review"]
+                ),
                 "events": self._events,
             }, indent=2), encoding="utf-8")
             self.active_id = None
@@ -110,6 +144,57 @@ class TeachRecorder:
         if not manifests:
             raise TeachError("No demonstrations recorded")
         return json.loads(manifests[0].read_text(encoding="utf-8"))
+
+    def analyze(self, identifier: str) -> dict:
+        """Conservative temporal grounding, *not* automatic Skill certification."""
+        if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+            raise TeachError("Invalid demonstration identifier")
+        manifest_path = self.root / identifier / "manifest.json"
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            raise TeachError("Demonstration is unavailable or recording is still active")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        observations = [event["data"] for event in manifest["events"]
+                        if event["type"] == "observation"]
+        clicks = [event for event in manifest["events"]
+                  if event["type"] == "input.mouse_click" and event.get("button") == "left"]
+        steps = []
+        for click in clicks[:12]:
+            candidates = []
+            # Use only a screenshot observation taken BEFORE the event. Never
+            # guess an element on a changed or unobserved application.
+            earlier = [o for o in observations
+                       if o["timestamp"] <= click["timestamp"]
+                       and o["executable"] == manifest["app"]]
+            if earlier:
+                observed = earlier[-1]
+                for element in observed["elements"]:
+                    bounds = element.get("bounds")
+                    if (element.get("automation_id")
+                            and element.get("control_type") in {"Button", "CheckBox", "RadioButton"}
+                            and bounds and bounds[0] <= click["x"] <= bounds[2]
+                            and bounds[1] <= click["y"] <= bounds[3]):
+                        area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
+                        candidates.append((area, element["automation_id"]))
+            candidates.sort()
+            target = candidates[0][1] if len(candidates) == 1 else None
+            steps.append({
+                "kind": "ui.click",
+                "automation_id": target,
+                "confidence": "tentative" if target else "unresolved",
+                "requires_expected_outcome": True,
+            })
+        return {
+            "id": identifier,
+            "frames": manifest["frames"],
+            "input_events": len([e for e in manifest["events"] if e["type"].startswith("input.")]),
+            "steps": steps,
+            "uncertainties": [
+                "Click targeting is geometric and tentative; review UIA selectors",
+                "Expected outcomes, parameters and task goal require user correction",
+                "No Skill is verified by this analysis",
+            ],
+            "status": "needs_review",
+        }
 
     def delete(self, identifier: str) -> None:
         if not identifier.isalnum() or len(identifier) != 32 or identifier == self.active_id:

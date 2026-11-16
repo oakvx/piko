@@ -59,6 +59,9 @@ class Agent:
         return session
 
     def _observation(self, session: Session, include_image: bool = False) -> Observation:
+        # Check consent before screenshot capture, as well as after process
+        # identity has been observed. Unauthorized captures must not happen.
+        self.permissions.check_observe(session.app_executable, session.id)
         observation = self.desktop.observe(include_image=include_image)
         if observation.executable.casefold() != session.app_executable:
             raise RuntimeError(f"Application changed: expected {session.app_executable}, got {observation.executable}")
@@ -93,6 +96,32 @@ class Agent:
             self._state(session, SessionState.FAILED)
             raise
 
+    async def prepare_from_plan(self, session_id: str, plan: Plan) -> Session:
+        """Review an existing typed Skill plan without trusting it as executable."""
+        session = self.sessions[session_id]
+        if session.state != SessionState.IDLE:
+            raise InvalidTransition("Only new sessions may review a Skill")
+        session = self._state(session, SessionState.OBSERVING)
+        try:
+            observed = await asyncio.to_thread(self._observation, session)
+            session = self._state(session, SessionState.ANALYZING)
+            # A saved Skill, like LLM output, is untrusted. Check grants and
+            # every currently targeted UIA element before user review.
+            known = {e.automation_id for e in observed.elements if not e.is_password}
+            for action in plan.actions:
+                self.permissions.check(session.app_executable, session.id, action)
+                if action.automation_id and action.automation_id not in known:
+                    raise RuntimeError(f"Skill target unavailable: {action.automation_id}")
+            session = self._state(session, SessionState.PLANNING)
+            session = session.model_copy(update={"plan": plan})
+            self.sessions[session.id] = session
+            return self._state(session, SessionState.WAITING_FOR_USER)
+        except Exception as exc:
+            session = session.model_copy(update={"error": str(exc)})
+            self.sessions[session.id] = session
+            self._state(session, SessionState.FAILED)
+            raise
+
     async def run(self, session_id: str) -> Session:
         session = self.sessions[session_id]
         if session.state not in {SessionState.WAITING_FOR_USER, SessionState.PAUSED} or not session.plan:
@@ -100,6 +129,9 @@ class Agent:
         if self._active_lock.locked():
             raise RuntimeError("Another agent session owns desktop input")
         async with self._active_lock:
+            begin_session = getattr(self.desktop, "begin_session", None)
+            if begin_session is not None:
+                begin_session()
             session = self._state(session, SessionState.EXECUTING)
             try:
                 for index in range(session.next_action, len(session.plan.actions)):
@@ -120,7 +152,14 @@ class Agent:
                     # Cancelling wait_for(to_thread(...)) does NOT stop the native
                     # Windows operation. Retain input ownership until the worker
                     # actually exits, including on timeout or coroutine cancellation.
-                    dispatch = asyncio.create_task(asyncio.to_thread(self.desktop.execute, action))
+                    guarded_executor = getattr(self.desktop, "execute_observed", None)
+                    if guarded_executor is not None:
+                        dispatch = asyncio.create_task(
+                            asyncio.to_thread(guarded_executor, action, before))
+                    else:
+                        # Portable test fixture or non-Windows adapter.
+                        dispatch = asyncio.create_task(
+                            asyncio.to_thread(self.desktop.execute, action))
                     try:
                         await asyncio.wait_for(asyncio.shield(dispatch),
                                                timeout=action.timeout_seconds)

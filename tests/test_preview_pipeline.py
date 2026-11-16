@@ -16,7 +16,11 @@ def test_preview_gating_and_release_files():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     jobs = workflow["jobs"]
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
-    assert jobs["windows-installer"]["needs"] == ["python", "frontend"]
+    assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke"]
+    assert "rust-dependency-audit" in jobs
+    assert "npm ci" in "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
+    assert "cargo metadata --locked" in "\n".join(
+        step.get("run", "") for step in jobs["windows-installer"]["steps"])
     assert "pull_request" in jobs["publish-preview"]["if"]
     assert "refs/heads/main" in jobs["publish-preview"]["if"]
     assert jobs["publish-preview"]["permissions"]["contents"] == "write"
@@ -55,3 +59,28 @@ def test_ci_version_stamping(tmp_path, monkeypatch):
     assert re.search(r'version = "0.1.134"', (tauri / "Cargo.toml").read_text())
     with pytest.raises(ValueError):
         module.stamp(65536)
+
+
+def test_ci_version_stamping_keeps_dependency_locks_synchronized(tmp_path, monkeypatch):
+    path = ROOT / "scripts/ci/version.py"
+    spec = spec_from_file_location("preview_version_locked", path)
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    desktop = tmp_path / "apps/desktop"
+    tauri = desktop / "src-tauri"
+    tauri.mkdir(parents=True)
+    (desktop / "package.json").write_text('{"version":"0.1.0-alpha.1"}')
+    (desktop / "package-lock.json").write_text(json.dumps({
+        "version": "0.1.0-alpha.1",
+        "packages": {"": {"version": "0.1.0-alpha.1"}},
+    }))
+    (tauri / "tauri.conf.json").write_text('{"version":"0.1.0-alpha.1"}')
+    (tauri / "Cargo.toml").write_text('[package]\nversion = "0.1.0-alpha.1"\n')
+    (tauri / "Cargo.lock").write_text(
+        '[[package]]\nname = "piko-desktop"\nversion = "0.1.0-alpha.1"\n'
+    )
+    assert module.stamp(321) == "0.1.321"
+    npm = json.loads((desktop / "package-lock.json").read_text())
+    assert npm["version"] == npm["packages"][""]["version"] == "0.1.321"
+    assert 'version = "0.1.321"' in (tauri / "Cargo.lock").read_text()

@@ -1,4 +1,4 @@
-import type { AgentEvent, Demonstration, Health, ModelInfo, Observation, Session, Skill } from './types';
+import type { AgentEvent, Demonstration, Health, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
 
 const DEFAULT_ORIGIN = 'http://127.0.0.1:8765';
 
@@ -50,6 +50,36 @@ export class PikoClient {
   session(id: string) { return this.request<Session>(`/sessions/${encodeURIComponent(id)}`); }
   events(id: string) { return this.request<AgentEvent[]>(`/sessions/${encodeURIComponent(id)}/events`); }
   skills() { return this.request<Skill[]>('/skills'); }
+  reviewSkill(slug: string) {
+    return this.request<Session>(`/skills/${encodeURIComponent(slug)}/review`, {
+      method: 'POST', body: JSON.stringify({ authorize_foreground_app: true }),
+    });
+  }
+  async exportSkill(slug: string): Promise<Blob> {
+    const response = await fetch(`${this.origin}/skills/${encodeURIComponent(slug)}/export`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`Skill export failed: HTTP ${response.status}`);
+    return response.blob();
+  }
+  importSkill(archive_base64: string) {
+    return this.request<{ name: string; status: string }>(`/skills/import`, {
+      method: 'POST', body: JSON.stringify({ archive_base64 }),
+    });
+  }
+  skillRevisions(slug: string) {
+    return this.request<{ revisions: number[] }>(`/skills/${encodeURIComponent(slug)}/revisions`);
+  }
+  rollbackSkill(slug: string, revision: number) {
+    return this.request(`/skills/${encodeURIComponent(slug)}/rollback/${revision}`, {
+      method: 'POST',
+    });
+  }
+  skillHistory(slug: string) {
+    return this.request<Array<{ session_id: string; completed: boolean; timestamp: string }>>(
+      `/skills/${encodeURIComponent(slug)}/history`);
+  }
   createSession(objective: string, executable: string) {
     return this.request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ objective, executable }) });
   }
@@ -71,6 +101,15 @@ export class PikoClient {
     });
   }
   latestTeach() { return this.request<Demonstration>('/teach/latest'); }
+  analyzeTeach(id: string) {
+    return this.request<TeachAnalysis>(`/teach/${encodeURIComponent(id)}/analysis`);
+  }
+  saveTeachDraft(id: string, slug: string, description: string, plan: Plan) {
+    return this.request(`/teach/${encodeURIComponent(id)}/draft`, {
+      method: 'POST',
+      body: JSON.stringify({ slug, description, plan, confirmed_user_corrections: true }),
+    });
+  }
   stopTeach() { return this.request<Demonstration>('/teach/stop', { method: 'POST' }); }
   deleteTeach(id: string) { return this.request(`/teach/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   saveSkill(id: string, slug: string, description: string) {

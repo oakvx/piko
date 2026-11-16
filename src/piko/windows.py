@@ -12,6 +12,7 @@ import sys
 from ctypes import wintypes
 
 from piko.contracts import Action, ActionKind, Observation, UIElement
+from piko.input_guard import OwnedKeyboard
 
 
 class DesktopUnavailable(RuntimeError):
@@ -34,6 +35,19 @@ class WindowsDesktop:
             ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
         except (AttributeError, OSError):
             pass
+        self._keyboard = OwnedKeyboard(
+            self._inject_key,
+            lambda key: bool(ctypes.windll.user32.GetAsyncKeyState(key) & 0x8000),
+        )
+
+    @staticmethod
+    def _inject_key(key: int, down: bool) -> None:
+        # keybd_event is supported on Windows 10/11. Only keys owned by
+        # this agent are released; never synthesize a keyup for user-held keys.
+        ctypes.windll.user32.keybd_event(key, 0, 0 if down else 0x0002, 0)
+
+    def begin_session(self) -> None:
+        self._keyboard.begin_session()
 
     def _foreground(self) -> tuple[int, int, str, str]:
         import psutil
@@ -70,9 +84,16 @@ class WindowsDesktop:
                 value = None
                 if not is_password and info.control_type in {"Edit", "Text"}:
                     try:
-                        value = el.get_value() if hasattr(el, "get_value") else el.window_text()
+                        value = el.get_value() if hasattr(el, "get_value") else None
                     except Exception:
                         value = None
+                    # Some WinForms Text/Label UIA wrappers expose an empty
+                    # ValuePattern even when their visible window text changed.
+                    if value is None or value == "":
+                        try:
+                            value = el.window_text()
+                        except Exception:
+                            value = None
                 try:
                     rect = el.rectangle()
                     bounds = (int(rect.left), int(rect.top), int(rect.right), int(rect.bottom))
@@ -113,12 +134,11 @@ class WindowsDesktop:
             image.save(out, format="PNG")
             image_base64 = base64.b64encode(out.getvalue()).decode("ascii")
         return Observation(window_title=title, executable=executable, process_id=pid,
-                           elements=elements, image_base64=image_base64,
+                           window_handle=hwnd, elements=elements, image_base64=image_base64,
                            capture_bounds=capture_bounds)
 
-    def _target(self, automation_id: str):
+    def _target(self, automation_id: str, hwnd: int):
         from pywinauto import Desktop
-        hwnd, _, _, _ = self._foreground()
         controls = Desktop(backend="uia").window(handle=hwnd).descendants()
         matches = []
         for el in controls:
@@ -134,29 +154,116 @@ class WindowsDesktop:
             raise DesktopUnavailable(f"UIA target {automation_id!r} matched {len(matches)} controls")
         return matches[0]
 
+    def _assert_active(self, expected: Observation) -> int:
+        hwnd, pid, executable, _ = self._foreground()
+        if (
+            not expected.window_handle
+            or hwnd != expected.window_handle
+            or pid != expected.process_id
+            or executable.casefold() != expected.executable.casefold()
+        ):
+            raise DesktopUnavailable("Foreground window or process changed; refusing input")
+        return hwnd
+
     def execute(self, action: Action) -> None:
-        from pywinauto import keyboard
-        if action.kind == ActionKind.CLICK:
-            self._target(action.automation_id).click_input()
-        elif action.kind == ActionKind.SET_TEXT:
-            target = self._target(action.automation_id)
-            if target.element_info.control_type != "Edit":
-                raise DesktopUnavailable("Refusing text input into non-Edit control")
-            if hasattr(target, "set_edit_text"):
-                target.set_edit_text(action.text)
+        # Never let unbound callers dispatch native desktop input.
+        raise DesktopUnavailable("A fresh, authorized window observation is required")
+
+    def execute_observed(self, action: Action, expected: Observation) -> None:
+        hwnd = self._assert_active(expected)
+        if any(el.is_password for el in expected.elements):
+            raise DesktopUnavailable("Refusing input: password control observed")
+        if action.kind in {ActionKind.CLICK, ActionKind.SET_TEXT}:
+            target = self._target(action.automation_id, hwnd)
+            if not target.is_enabled():
+                raise DesktopUnavailable("UIA target is disabled")
+            self._assert_active(expected)
+            if action.kind == ActionKind.CLICK:
+                # UIA Invoke avoids an unbound global pointer click after a
+                # foreground switch. Non-invokable controls are refused.
+                if not hasattr(target, "invoke"):
+                    raise DesktopUnavailable("Target does not expose a safe UIA Invoke pattern")
+                target.invoke()
             else:
-                raise DesktopUnavailable("Target does not expose safe text input")
+                if target.element_info.control_type != "Edit":
+                    raise DesktopUnavailable("Refusing text input into non-Edit control")
+                if not hasattr(target, "set_edit_text"):
+                    raise DesktopUnavailable("Target does not expose UIA text input")
+                target.set_edit_text(action.text)
         elif action.kind == ActionKind.HOTKEY:
-            # Whitelist rechecked in PermissionManager before this method is called.
-            mapping = {"ctrl": "^", "tab": "{TAB}", "escape": "{ESC}",
-                       "a": "a", "c": "c", "v": "v"}
-            keyboard.send_keys("".join(mapping[key.casefold()] for key in action.keys))
+            # PermissionManager checked the exact allowlist before dispatch.
+            codes = {"ctrl": 0x11, "tab": 0x09, "escape": 0x1B,
+                     "a": 0x41, "c": 0x43, "v": 0x56}
+            keys = tuple(codes[key.casefold()] for key in action.keys)
+            self._keyboard.chord(keys, lambda: self._assert_active(expected))
         elif action.kind == ActionKind.WAIT:
-            return  # verification polling is performed by the orchestrator
+            return
         else:
             raise DesktopUnavailable(f"Unsupported action {action.kind}")
 
+    def start_teach_events(self, executable: str, window_handle: int,
+                           callback) -> callable:
+        """Listen only during opt-in recording; never store typed characters.
+
+        Pynput hooks receive OS events, but forward only structural events while
+        the *same* authorized HWND/PID is foreground and no password UIA element
+        is present. Credentials and key contents are never forwarded.
+        """
+        from pynput import keyboard, mouse
+
+        hwnd, pid, active_exe, _ = self._foreground()
+        if not window_handle or hwnd != window_handle or active_exe != executable.casefold():
+            raise DesktopUnavailable("Teach capture requires the approved foreground HWND")
+
+        def allowed() -> bool:
+            try:
+                current_hwnd, current_pid, current_exe, _ = self._foreground()
+                return (
+                    current_hwnd == hwnd and current_pid == pid
+                    and current_exe == executable.casefold()
+                    and not any(el.is_password for el in self._elements(hwnd))
+                )
+            except Exception:
+                return False
+
+        def on_click(x, y, button, pressed):
+            if pressed and allowed():
+                callback({"type": "input.mouse_click", "x": int(x), "y": int(y),
+                          "button": getattr(button, "name", "unknown")})
+
+        def on_scroll(x, y, dx, dy):
+            if allowed():
+                callback({"type": "input.mouse_scroll", "x": int(x), "y": int(y),
+                          "dx": int(dx), "dy": int(dy)})
+
+        allowed_keys = {
+            keyboard.Key.tab: "tab",
+            keyboard.Key.enter: "enter",
+            keyboard.Key.esc: "escape",
+            keyboard.Key.backspace: "backspace",
+        }
+
+        def on_press(key):
+            # No alphanumeric keypresses, password values or clipboard data.
+            label = allowed_keys.get(key)
+            if label is not None and allowed():
+                callback({"type": "input.special_key", "key": label})
+
+        mouse_listener = mouse.Listener(on_click=on_click, on_scroll=on_scroll)
+        keyboard_listener = keyboard.Listener(on_press=on_press)
+        mouse_listener.start()
+        try:
+            keyboard_listener.start()
+        except Exception:
+            mouse_listener.stop()
+            raise
+
+        def stop() -> None:
+            mouse_listener.stop()
+            keyboard_listener.stop()
+
+        return stop
+
     def emergency_release(self) -> None:
-        # Only atomic input operations in this slice: no held keys/buttons to release.
-        # Future continuous-input adapters MUST implement an OS-level release_all here.
-        pass
+        # Never release inputs belonging to another program or the human user.
+        self._keyboard.release_all()
