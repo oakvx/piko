@@ -147,12 +147,14 @@ class SetupCoordinator:
         self.provider = provider
         self.on_models_selected = on_models_selected
         self._task: asyncio.Task | None = None
+        # Hardware probing (notably nvidia-smi) must not block each UI poll.
+        self._hardware = hardware_profile()
         self.state = {"stage": "idle", "progress": 0, "error": None,
                       "reasoning": None, "vision": None}
 
     def status(self) -> dict:
         return {**self.state, "running": bool(self._task and not self._task.done()),
-                "hardware": hardware_profile(),
+                "hardware": self._hardware,
                 "ollama_installed": find_ollama_binary() is not None}
 
     def _update(self, stage: str, progress: int = 0) -> None:
