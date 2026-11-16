@@ -84,3 +84,44 @@ def test_setup_rejects_insufficient_disk_space(monkeypatch):
     with pytest.raises(ValueError, match="disk space"):
         coordinator.start("qwen3:8b", "qwen3-vl:2b-instruct")
     assert coordinator._task is None
+
+
+def test_local_model_selection_survives_restart_and_rejects_cloud_or_invalid_tags(tmp_path):
+    from piko.setup import load_model_selection, save_model_selection
+
+    assert load_model_selection(tmp_path) == (None, None)
+    save_model_selection(tmp_path, "qwen3:4b", "qwen3-vl:2b-instruct")
+    assert load_model_selection(tmp_path) == ("qwen3:4b", "qwen3-vl:2b-instruct")
+    with pytest.raises(ValueError):
+        save_model_selection(tmp_path, "qwen3:4b-cloud", None)
+    with pytest.raises(ValueError):
+        save_model_selection(tmp_path, "../malicious", None)
+    assert load_model_selection(tmp_path) == ("qwen3:4b", "qwen3-vl:2b-instruct")
+
+    (tmp_path / "model-selection.json").write_text(
+        '{"reasoning": "suspicious:cloud", "vision": null}'
+    )
+    assert load_model_selection(tmp_path) == (None, None)
+
+
+def test_packaged_runtime_restores_selected_models_without_cloud_calls(tmp_path):
+    from piko.api import create_app
+    from piko.contracts import Observation
+    from piko.setup import save_model_selection
+
+    class FixtureDesktop:
+        def observe(self, include_image=False):
+            return Observation(window_title="fixture", process_id=1,
+                               executable="fixture.exe", elements=[])
+        def emergency_release(self):
+            pass
+
+    save_model_selection(tmp_path, "qwen3:4b", "qwen3-vl:2b-instruct")
+    app = create_app(token="x" * 32, reasoning_model="",
+                     desktop=FixtureDesktop(), root=tmp_path)
+    try:
+        assert app.state.agent.planner.reasoning_model == "qwen3:4b"
+        assert app.state.agent.planner.vision_model == "qwen3-vl:2b-instruct"
+        assert app.state.agent.vision is not None
+    finally:
+        app.state.agent.memory.close()
