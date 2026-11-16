@@ -175,12 +175,14 @@ class TeachRecorder:
                         # Discard the returned screenshot without writing it.
                         self._events.append({
                             "type": "capture.stopped", "reason": "window_changed",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         })
                         self._stop.set()
                         break
                     if any(el.is_password for el in observation.elements):
                         self._events.append({
                             "type": "capture.stopped", "reason": "password_field",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         })
                         self._stop.set()
                         break
@@ -204,17 +206,19 @@ class TeachRecorder:
                             element["automation_id"] = ""
                     self._events.append({"type": "observation", "data": record})
                     frames += 1
-                except (PermissionError,) as exc:
+                except PermissionError:
                     # Revocation/expiry ends recording instead of repeatedly
                     # trying to capture an application without a valid grant.
                     self._events.append({
                         "type": "capture.stopped", "reason": "authorization_lost",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                     self._stop.set()
                     break
                 except Exception as exc:
                     self._events.append({
                         "type": "capture.skipped", "reason": type(exc).__name__,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                 self._drain_events()
                 try:
