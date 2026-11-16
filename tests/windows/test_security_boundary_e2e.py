@@ -98,17 +98,25 @@ async def test_real_same_executable_foreground_switch_fails_with_sanitized_evide
 
         # The foreign app remains untouched even though it presents the same
         # valid UIA SaveButton and runs the same executable powershell.exe.
+        # Inspect each *specific* HWND by real UIA, without shifting the
+        # foreground again. Hosted CI may temporarily report HWND=0 during
+        # set_focus(); that is not evidence the protected app was modified.
+        foreign_readback = switched.model_copy(update={
+            "elements": bridge._elements(switched.window_handle),
+        })
         untouched, _ = verify(Expectation(
             automation_id="StatusLabel",
             property="text_equals", value="Waiting",
-        ), bridge.observe())
+        ), foreign_readback)
         assert untouched
 
-        authorized.set_focus()
+        authorized_readback = initial.model_copy(update={
+            "elements": bridge._elements(initial.window_handle),
+        })
         still_untouched, _ = verify(Expectation(
             automation_id="StatusLabel",
             property="text_equals", value="Waiting",
-        ), bridge.observe())
+        ), authorized_readback)
         assert still_untouched
 
         events = store.list_events(session.id)
