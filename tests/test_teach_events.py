@@ -25,6 +25,9 @@ class EventDesktop:
                           bounds=(0, 0, 100, 100)),
                 UIElement(automation_id="Status", name="private info", value="SECRET-VALUE",
                           control_type="Text", bounds=(110, 0, 300, 50)),
+                UIElement(automation_id="name::Button::SENSITIVE-FALLBACK",
+                          name="SENSITIVE-BUTTON-LABEL", control_type="Button",
+                          bounds=(200, 150, 250, 190)),
             ],
             image_base64="YQ==" if include_image else None,
         )
@@ -64,6 +67,8 @@ async def test_teach_scoped_timeline_and_tentative_uia_grounding(tmp_path):
     assert "SECRET-VALUE" not in recorded
     assert "Sensitive document title" not in recorded
     assert "private info" not in recorded
+    assert "SENSITIVE-FALLBACK" not in recorded
+    assert "SENSITIVE-BUTTON-LABEL" not in recorded
     assert "input.mouse_click" in recorded
     analysis = recorder.analyze(identifier)
     assert analysis["input_events"] == 1
@@ -102,3 +107,38 @@ async def test_teach_user_correction_requires_outcome_and_explicit_confirmation(
         assert response.json()["verified"] is False
         assert response.json()["status"] == "draft"
         assert len((await client.get("/skills", headers=auth)).json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_teach_only_saves_allowlisted_input_fields(tmp_path):
+    recorder = TeachRecorder(EventDesktop(), tmp_path / "demonstrations")
+    await recorder.start("demo.exe", seconds=3)
+    recorder._enqueue_event({
+        "type": "input.mouse_click", "button": "left", "x": 35, "y": 40,
+        "text": "EXFILTRATE-SECRET", "clipboard": "EXFILTRATE-SECRET",
+    })
+    recorder._enqueue_event({
+        "type": "input.special_key", "key": "a", "text": "EXFILTRATE-SECRET",
+    })
+    recorder._enqueue_event({"type": "input.secret", "value": "EXFILTRATE-SECRET"})
+    manifest = await recorder.stop()
+    serialized = json.dumps(manifest)
+    assert "EXFILTRATE-SECRET" not in serialized
+    assert len([e for e in manifest["events"] if e["type"] == "input.mouse_click"]) == 1
+    assert not any(e["type"] == "input.secret" for e in manifest["events"])
+
+
+def test_teach_queue_is_bounded_under_input_flood(tmp_path):
+    from piko.teach import MAX_PENDING_INPUT_EVENTS
+
+    recorder = TeachRecorder(EventDesktop(), tmp_path / "demonstrations")
+    recorder.active_id = "synthetic-test"
+    for _ in range(MAX_PENDING_INPUT_EVENTS + 20):
+        recorder._enqueue_event({
+            "type": "input.mouse_scroll", "x": 5, "y": 10, "dx": 0, "dy": 1,
+        })
+    assert recorder._event_queue.qsize() == MAX_PENDING_INPUT_EVENTS
+    assert recorder._dropped_input_events == 20
+    recorder._drain_events()
+    assert recorder._recorded_input_events == MAX_PENDING_INPUT_EVENTS
+    assert len(recorder._events) == MAX_PENDING_INPUT_EVENTS
