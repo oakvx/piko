@@ -139,6 +139,28 @@ jobs:
           set -euo pipefail
           cargo audit --file apps/desktop/src-tauri/Cargo.lock
 
+  sbom:
+    name: Inventory locked dependency graph (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Generate and reproduce locked source SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="distribution/Piko-${{ github.sha }}-sbom.cdx.json"
+          python scripts/ci/generate_sbom.py --source-sha "${{ github.sha }}" --output "$output"
+          python scripts/ci/generate_sbom.py --source-sha "${{ github.sha }}" --output "$output" --check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: piko-sbom-${{ github.sha }}
+          path: distribution/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
   python-dependency-audit:
     name: Audit pinned Windows Python packages
     runs-on: ubuntu-latest
@@ -184,7 +206,7 @@ jobs:
   publish-preview:
     name: Publish verified prerelease
     runs-on: ubuntu-latest
-    needs: [windows-installer, windows-installer-smoke]
+    needs: [windows-installer, windows-installer-smoke, sbom]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
@@ -193,7 +215,11 @@ jobs:
         with:
           name: piko-installer-${{ github.sha }}
           path: distribution
-      - name: Publish installer for this exact commit
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: piko-sbom-${{ github.sha }}
+          path: distribution
+      - name: Publish installer and source-locked SBOM for this exact commit
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -204,6 +230,12 @@ jobs:
           shopt -s nullglob
           installers=(distribution/*.exe)
           checksums=(distribution/*.sha256)
+          sboms=(distribution/*.cdx.json)
+          if (( ${#sboms[@]} != 1 )); then
+            echo 'Exactly one locked dependency SBOM must exist.' >&2
+            exit 1
+          fi
+          python -c 'import json,os,sys; p=json.load(open(sys.argv[1],encoding="utf-8")); assert p["bomFormat"]=="CycloneDX"; assert len(p["components"])>200; assert p["metadata"]["properties"][0]["value"]==os.environ["SHA"]' "${sboms[0]}"
           if (( ${#installers[@]} != 1 || ${#checksums[@]} != 1 )); then
             echo 'Exactly one installer and SHA256 sidecar must exist.' >&2
             exit 1
@@ -211,9 +243,9 @@ jobs:
           (cd distribution && sha256sum --check "$(basename "${checksums[0]}")")
           tag="preview-${SHA:0:12}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "${installers[0]}" "${checksums[0]}" --clobber
+            gh release upload "$tag" "${installers[0]}" "${checksums[0]}" "${sboms[0]}" --clobber
           else
-            gh release create "$tag" "${installers[0]}" "${checksums[0]}" \
+            gh release create "$tag" "${installers[0]}" "${checksums[0]}" "${sboms[0]}" \
               --target "$SHA" --prerelease --latest=false \
               --title "Piko Preview ${SHA:0:12}" \
               --notes "Automated Windows x64 NSIS preview for commit $SHA. Includes the local Python agent backend. Experimental: no guarantee of end-to-end hardware validation; Ollama and compatible model are user-managed."
