@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from piko.api import create_app
-from piko.contracts import Action, Expectation, Observation, Plan, UIElement
+from piko.contracts import Action, Expectation, Observation, Plan, SessionState, UIElement
 from piko.skills import SkillError, SkillLibrary
 
 
@@ -176,3 +176,69 @@ async def test_skill_archive_api_requires_auth_and_forces_draft(tmp_path):
         assert response.status_code == 200
         assert response.json()["verified"] is False
         assert len((await client.get("/skills", headers=auth)).json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_skill_pause_resume_records_one_terminal_run_with_metrics(tmp_path):
+    """Pause is not failure; resumed replay retains its Skill history binding."""
+    lib = SkillLibrary(tmp_path / "skills")
+    lib.save_draft("save-demo", "Reviewed save", "demo.exe", sample_plan())
+    app = create_app(token="p" * 32, reasoning_model="", desktop=Screen(),
+                     inference=Inference(), root=tmp_path)
+    agent = app.state.agent
+    calls = []
+
+    async def deterministic_paused_then_completed(sid):
+        calls.append(sid)
+        running = agent._state(agent.sessions[sid], SessionState.EXECUTING)
+        if len(calls) == 1:
+            return agent._state(running, SessionState.PAUSED)
+        verifying = agent._state(running, SessionState.VERIFYING)
+        return agent._state(verifying, SessionState.COMPLETED)
+
+    agent.run = deterministic_paused_then_completed
+    auth = {"Authorization": "Bearer " + "p" * 32}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                 base_url="http://test") as client:
+        reviewed = await client.post("/skills/save-demo/review", headers=auth,
+                                    json={"authorize_foreground_app": True})
+        assert reviewed.status_code == 200, reviewed.text
+        sid = reviewed.json()["id"]
+        assert (await client.post(f"/sessions/{sid}/execute",
+                                  headers=auth)).status_code == 200
+        for _ in range(100):
+            state = (await client.get(f"/sessions/{sid}", headers=auth)).json()["state"]
+            if state == "paused":
+                break
+            await asyncio.sleep(0.02)
+        assert state == "paused"
+        assert (await client.get("/skills/save-demo/history", headers=auth)).json() == []
+        # Wait for the first worker to return before starting a fresh run.
+        await asyncio.sleep(0.05)
+        resumed = await client.post(f"/sessions/{sid}/resume", headers=auth)
+        assert resumed.status_code == 200, resumed.text
+        for _ in range(100):
+            history = (await client.get("/skills/save-demo/history",
+                                        headers=auth)).json()
+            if len(history) == 1:
+                break
+            await asyncio.sleep(0.02)
+        assert len(history) == 1
+        record = history[0]
+        assert record["session_id"] == sid
+        assert record["completed"] is True
+        assert record["verified_actions"] == 0
+        assert isinstance(record["wall_duration_ms"], int)
+        assert record["wall_duration_ms"] >= 0
+        assert calls == [sid, sid]
+        assert lib.list_skills()[0]["status"] == "draft"
+
+
+def test_skill_history_refuses_invalid_performance_fields(tmp_path):
+    lib = SkillLibrary(tmp_path / "skills")
+    lib.save_draft("save-demo", "Reviewed save", "demo.exe", sample_plan())
+    with pytest.raises(SkillError, match="wall duration"):
+        lib.record_run("save-demo", "session", True, wall_duration_ms=-5)
+    with pytest.raises(SkillError, match="verified action"):
+        lib.record_run("save-demo", "session", True, verified_actions=True)
+    assert lib.history("save-demo") == []
