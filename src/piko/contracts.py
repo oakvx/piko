@@ -127,6 +127,9 @@ class Session(StrictModel):
     objective: str
     state: SessionState = SessionState.IDLE
     app_executable: str
+    # Optional, user-selected top-level Win32 HWND (validated with PID + process start).
+    target_window_handle: int | None = Field(default=None, ge=1)
+    allow_activate: bool = False
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
     plan: Plan | None = None
