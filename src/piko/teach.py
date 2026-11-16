@@ -69,6 +69,16 @@ class TeachRecorder:
                         (folder / f"frame-{frames:04d}.png").write_bytes(
                             base64.b64decode(observation.image_base64, validate=True))
                         record = observation.model_dump(mode="json", exclude={"image_base64"})
+                        # Screenshots are explicitly authorized; the machine-readable
+                        # timeline must not duplicate typed contents or document titles.
+                        record["window_title"] = ""
+                        for element in record["elements"]:
+                            element["value"] = None
+                            if element["control_type"] in {"Edit", "Text", "Document"}:
+                                element["name"] = ""
+                                # Fallback UIA ids can contain user-visible text.
+                                if element["automation_id"].startswith("name::"):
+                                    element["automation_id"] = ""
                         self._events.append({"type": "observation", "data": record})
                         frames += 1
                 except Exception as exc:
