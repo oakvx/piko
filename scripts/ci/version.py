@@ -46,7 +46,7 @@ def stamp(run_number: int) -> str:
     cargo_lock_path = ROOT / "apps/desktop/src-tauri/Cargo.lock"
     if cargo_lock_path.is_file():
         locked = cargo_lock_path.read_text(encoding="utf-8")
-        expression = (r'(?m)^(name = "piko-desktop"\\nversion = )"[^"]+"')
+        expression = (r'(?m)^(name = "piko-desktop"\nversion = )"[^"]+"')
         # This local package entry is the only Cargo.lock version changed.
         locked, count = re.subn(expression, lambda m: m.group(1) + f'"{version}"',
                                 locked, count=1)
