@@ -51,7 +51,7 @@ class LocalMemory:
 
     def write_event(self, event: Event) -> None:
         # Never include sensitive action text or a screenshot in event payloads.
-        safe = {k: v for k, v in event.payload.items() if k in {"state", "action", "index", "reason", "verified"}}
+        safe = {k: v for k, v in event.payload.items() if k in {"state", "action", "index", "reason", "verified", "phase"}}
         self.connection.execute(
             "INSERT INTO events (session_id, type, timestamp, payload) VALUES (?, ?, ?, ?)",
             (event.session_id, event.type, event.timestamp.isoformat(), json.dumps(safe)),

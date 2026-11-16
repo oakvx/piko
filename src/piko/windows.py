@@ -9,6 +9,7 @@ import ctypes
 import io
 import os
 import sys
+import threading
 from ctypes import wintypes
 
 from piko.contracts import Action, ActionKind, Observation, UIElement
@@ -39,6 +40,7 @@ class WindowsDesktop:
             self._inject_key,
             lambda key: bool(ctypes.windll.user32.GetAsyncKeyState(key) & 0x8000),
         )
+        self._input_stopped = threading.Event()
 
     @staticmethod
     def _inject_key(key: int, down: bool) -> None:
@@ -48,6 +50,12 @@ class WindowsDesktop:
 
     def begin_session(self) -> None:
         self._keyboard.begin_session()
+        self._input_stopped.clear()
+
+    def _assert_input_not_stopped(self) -> None:
+        signal = getattr(self, "_input_stopped", None)
+        if signal is not None and signal.is_set():
+            raise DesktopUnavailable("Emergency stop is active; refusing native input")
 
     def _foreground(self) -> tuple[int, int, str, str]:
         import psutil
@@ -82,7 +90,7 @@ class WindowsDesktop:
         try:
             wrappers = window.descendants()
         except Exception as exc:
-            raise DesktopUnavailable(f"Windows UI Automation unavailable: {exc}") from exc
+            raise DesktopUnavailable(f"Windows UI Automation unavailable ({type(exc).__name__})") from exc
         for el in wrappers[:300]:
             try:
                 info = el.element_info
@@ -173,7 +181,7 @@ class WindowsDesktop:
             except Exception:
                 continue
         if len(matches) != 1:
-            raise DesktopUnavailable(f"UIA target {automation_id!r} matched {len(matches)} controls")
+            raise DesktopUnavailable(f"UIA target not uniquely resolved ({len(matches)} matches)")
         return matches[0]
 
     def _assert_active(self, expected: Observation) -> int:
@@ -195,6 +203,7 @@ class WindowsDesktop:
         raise DesktopUnavailable("A fresh, authorized window observation is required")
 
     def execute_observed(self, action: Action, expected: Observation) -> None:
+        self._assert_input_not_stopped()
         hwnd = self._assert_active(expected)
         if any(el.is_password for el in expected.elements):
             raise DesktopUnavailable("Refusing input: password control observed")
@@ -203,6 +212,9 @@ class WindowsDesktop:
             if not target.is_enabled():
                 raise DesktopUnavailable("UIA target is disabled")
             self._assert_active(expected)
+            # Target lookup may hang in COM; stop requests must survive until
+            # it returns and prevent invoking the now-unwanted action.
+            self._assert_input_not_stopped()
             if action.kind == ActionKind.CLICK:
                 # UIA Invoke avoids an unbound global pointer click after a
                 # foreground switch. Non-invokable controls are refused.
@@ -220,7 +232,11 @@ class WindowsDesktop:
             codes = {"ctrl": 0x11, "tab": 0x09, "escape": 0x1B,
                      "a": 0x41, "c": 0x43, "v": 0x56}
             keys = tuple(codes[key.casefold()] for key in action.keys)
-            self._keyboard.chord(keys, lambda: self._assert_active(expected))
+            def check_target() -> None:
+                self._assert_active(expected)
+                self._assert_input_not_stopped()
+
+            self._keyboard.chord(keys, check_target)
         elif action.kind == ActionKind.WAIT:
             return
         else:
@@ -290,5 +306,8 @@ class WindowsDesktop:
         return stop
 
     def emergency_release(self) -> None:
+        # Stop every later dispatch after a hung UIA lookup eventually returns.
+        # This cannot interrupt an invocation already inside a native COM call.
+        self._input_stopped.set()
         # Never release inputs belonging to another program or the human user.
         self._keyboard.release_all()

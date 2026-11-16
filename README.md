@@ -27,7 +27,7 @@
 Piko looks at the app in front of it, writes a plan with a local Ollama model, waits for you to read it, and only then clicks and types. No cloud, no background screen stream, no action without your approval.
 
 > [!WARNING]
-> **`0.1.0a0`, early prototype.** The Python core is tested on Linux with fakes. Windows automation, the Tauri app and real Ollama output still need validation on a real Windows machine. Don't point it at anything sensitive, destructive or financial.
+> **Alpha preview, not a stable release.** CI now verifies Python on Windows/Linux, real WinForms UI Automation, dependency audits and the packaged NSIS install/launch/close/uninstall lifecycle on a hosted Windows Server runner. It **does not** certify clean Windows 10/11 VMs or real Ollama reasoning/vision inference. Do not use Piko for sensitive, destructive or financial tasks.
 
 ## How it works
 
@@ -74,13 +74,13 @@ Or grab a build from [Releases](https://github.com/oakvx/piko/releases). Read [W
 
 ```sh
 cd apps/desktop
-npm install
+npm ci
 npm run dev
 ```
 
 `npm run check` and `npm run build` validate the frontend. `npm run tauri build` also needs Rust, the Microsoft C++ build tools and WebView2. See [Workfield design](docs/architecture/WORKFIELD.md).
 
-There is no `package-lock.json` yet, so JS installs aren't reproducible and CI uses `npm install`. Next step: commit a lockfile and move to `npm ci`.
+The repository includes reviewed npm, Cargo and packaged Python dependency locks. CI uses `npm ci`, locked Rust metadata and a pinned Python Windows backend environment.
 
 </details>
 
@@ -91,7 +91,7 @@ There is no `package-lock.json` yet, so JS installs aren't reproducible and CI u
 powershell -NoProfile -ExecutionPolicy Bypass -File examples/testbench.ps1
 ```
 
-Run it in a second terminal, grant Piko access to the testbench only, keep it in the foreground, read the plan, approve. The testbench isn't in the CI GUI runner yet.
+Run it in a second terminal, grant Piko access to the testbench only, keep it in the foreground, read the plan, approve. A real Windows WinForms UI Automation smoke test now runs in CI; use the local testbench for additional interactive acceptance.
 
 </details>
 
@@ -100,8 +100,8 @@ Run it in a second terminal, grant Piko access to the testbench only, keep it in
 - Session state machine on SQLite. Sessions interrupted by a restart are marked failed.
 - Per-session, per-app permissions and validated UI Automation actions.
 - Ollama model discovery, JSON planning, optional screenshot interpretation.
-- Opt-in 30-second screenshot recorder for demonstrations.
-- Draft `SKILL.md` files from reviewed plans, always labeled as drafts.
+- Consent-based, time-bounded Teach recorder with UIA observations, redacted structural mouse/navigation events and user-corrected draft creation.
+- Versioned, importable/exportable draft Skills with rollback, execution history and text-only `{{parameter}}` binding at review time.
 - Loopback-only, token-protected API.
 - Workfield, the React/Tauri interface.
 
@@ -121,9 +121,9 @@ Details: [Security constraints](docs/security/BOUNDARIES.md).
 
 - Capture uses `mss` on the foreground window, not Windows.Graphics.Capture. A partly covered window can be captured wrong.
 - Depends on the accessibility metadata apps expose. No general OCR, no coordinate grounding.
-- The demo recorder saves screenshots only. No keyboard or mouse capture, and no path from demonstration to a verified skill yet.
+- Teach records approved mouse/navigation events and screenshots but never raw typed characters. Inference is tentative and requires user correction; a successful replay does not automatically certify a Skill.
 - Plans are made once, not revised mid-run. Verification needs matching UIA elements.
-- Cancel and pause can't interrupt an OS call already in flight. A resumed session re-validates the next action.
+- Native UIA COM calls already in flight cannot be forcibly killed safely. Emergency stop releases Piko-owned keys and prevents later dispatch after blocked target resolution; a resumed session must revalidate the next action.
 - No offline gaming adapter, no live screen streaming, no long autonomous runs.
 
 ## Tests
@@ -134,13 +134,13 @@ python -m pytest -q
 python -m compileall -q src tests
 ```
 
-These use fakes. They cover contracts, state, permissions and persistence, and say nothing about real Windows input, capture or Ollama output.
+The portable suite covers contracts, state, permissions, persisted evidence and Skill reuse. Separate Windows CI runs a real WinForms target, foreground-switch denial and installer lifecycle smoke. Actual local Ollama model inference remains an explicit, separately configured acceptance gate.
 
 ## Windows installer
 
 Every push and PR builds an NSIS x64 installer with the Python backend bundled. Green builds on `main` are published as prereleases with a SHA-256 checksum.
 
-A green build means it compiled, nothing more. Installing, uninstalling and running it on a clean Windows machine hasn't been signed off. Check [Actions](https://github.com/oakvx/piko/actions) and [Releases](https://github.com/oakvx/piko/releases) for what exists, and [Preview releases](docs/development/PREVIEW_RELEASES.md) for how the pipeline works.
+Each main prerelease requires successful compilation, dependency audits, a Windows UIA smoke and a hosted-Windows NSIS install/launch/sidecar-close/uninstall smoke. These checks do not replace clean Windows 10/11 installation, upgrade, reboot and Ollama E2E validation. Check [Actions](https://github.com/oakvx/piko/actions) and [Releases](https://github.com/oakvx/piko/releases) for what exists, and [Preview releases](docs/development/PREVIEW_RELEASES.md) for how the pipeline works.
 
 ## Credits
 

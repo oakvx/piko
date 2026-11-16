@@ -85,7 +85,7 @@ class Agent:
             known = {el.automation_id for el in observation.elements if not el.is_password}
             for action in plan.actions:
                 if action.automation_id and action.automation_id not in known:
-                    raise ValueError(f"Unknown UIA target: {action.automation_id}")
+                    raise ValueError("Proposed plan references a UIA target absent from the current observation")
             session = session.model_copy(update={"plan": plan})
             self.sessions[session.id] = session
             session = self._state(session, SessionState.WAITING_FOR_USER)
@@ -111,7 +111,7 @@ class Agent:
             for action in plan.actions:
                 self.permissions.check(session.app_executable, session.id, action)
                 if action.automation_id and action.automation_id not in known:
-                    raise RuntimeError(f"Skill target unavailable: {action.automation_id}")
+                    raise RuntimeError("Saved Skill target unavailable in the current foreground application")
             session = self._state(session, SessionState.PLANNING)
             session = session.model_copy(update={"plan": plan})
             self.sessions[session.id] = session
@@ -133,6 +133,9 @@ class Agent:
             if begin_session is not None:
                 begin_session()
             session = self._state(session, SessionState.EXECUTING)
+            # Only typed action identity/phase enters the persisted evidence
+            # ledger. Never write text inputs, screen content or model plans.
+            action_context: tuple[str, int, str] | None = None
             try:
                 for index in range(session.next_action, len(session.plan.actions)):
                     action = session.plan.actions[index]
@@ -140,6 +143,7 @@ class Agent:
                         return self._state(session, SessionState.CANCELLED)
                     if self._pause[session.id].is_set():
                         return self._state(session, SessionState.PAUSED)
+                    action_context = (action.kind.value, index, "preflight")
                     before = await asyncio.to_thread(self._observation, session)
                     self.permissions.check(before.executable, session.id, action)
                     # Always observe target again before dispatch; refuse vanished elements.
@@ -149,6 +153,7 @@ class Agent:
                         raise RuntimeError(f"UI target disappeared before action {index + 1}")
                     self.memory.write_event(Event(type="action.requested", session_id=session.id,
                                                   payload={"action": action.kind.value, "index": index}))
+                    action_context = (action.kind.value, index, "dispatch")
                     # Cancelling wait_for(to_thread(...)) does NOT stop the native
                     # Windows operation. Retain input ownership until the worker
                     # actually exits, including on timeout or coroutine cancellation.
@@ -174,6 +179,7 @@ class Agent:
                     self.memory.write_event(Event(type="action.executed", session_id=session.id,
                                                   payload={"action": action.kind.value, "index": index}))
                     session = self._state(session, SessionState.VERIFYING)
+                    action_context = (action.kind.value, index, "verification")
                     deadline = asyncio.get_running_loop().time() + action.timeout_seconds
                     ok = False
                     reason = ""
@@ -192,10 +198,18 @@ class Agent:
                     session = session.model_copy(update={"next_action": index + 1})
                     self.sessions[session.id] = session
                     self.memory.save(session)
+                    self.memory.write_event(Event(type="action.verified", session_id=session.id,
+                                                  payload={"action": action.kind.value, "index": index}))
+                    action_context = None
                     if index + 1 < len(session.plan.actions):
                         session = self._state(session, SessionState.EXECUTING)
                 return self._state(session, SessionState.COMPLETED)
             except Exception as exc:
+                if action_context is not None:
+                    kind, index, phase = action_context
+                    self.memory.write_event(Event(type="action.failed", session_id=session.id,
+                                                  payload={"action": kind, "index": index,
+                                                           "phase": phase, "reason": type(exc).__name__}))
                 session = session.model_copy(update={"error": str(exc)})
                 self.sessions[session.id] = session
                 self.memory.write_event(Event(type="agent.error", session_id=session.id,
