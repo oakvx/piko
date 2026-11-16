@@ -228,3 +228,15 @@ def test_emergency_stop_refuses_new_uia_actions_until_begin_session():
     bridge._foreground = lambda: pytest.fail("Cancelled action must not inspect desktop")
     with pytest.raises(DesktopUnavailable, match="Emergency stop"):
         bridge.execute_observed(click(), observation())
+
+
+def test_verification_failure_never_echoes_sensitive_selector():
+    from piko.verification import verify
+
+    secret = "name::Text::PRIVATE CUSTOMER NAME"
+    before = observation()
+    expectation = Expectation(automation_id=secret, property="exists")
+    ok, reason = verify(expectation, before)
+    assert not ok
+    assert secret not in reason
+    assert "PRIVATE" not in reason
