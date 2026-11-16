@@ -27,7 +27,15 @@ def inventory(root: Path, sha: str) -> dict:
             license_label: str | None = None) -> None:
         if not name or not version:
             raise ValueError("Missing locked dependency name or version")
-        purl = f"pkg:{ecosystem}/{quote(name, safe='')}@{quote(version, safe='')}"
+        # Package URL represents scoped npm names as a namespace + name.
+        # Do not encode the namespace separator into the component name.
+        encoded = quote(name, safe="")
+        if ecosystem == "npm" and name.startswith("@"):
+            scope, separator, package_name = name.partition("/")
+            if not separator or not package_name:
+                raise ValueError("Invalid scoped npm package name")
+            encoded = f"{quote(scope, safe='')}/{quote(package_name, safe='')}"
+        purl = f"pkg:{ecosystem}/{encoded}@{quote(version, safe='')}"
         item = {
             "type": "library", "name": name, "version": version,
             "purl": purl, "bom-ref": purl,
