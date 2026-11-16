@@ -90,7 +90,7 @@ class WindowsDesktop:
         try:
             wrappers = window.descendants()
         except Exception as exc:
-            raise DesktopUnavailable(f"Windows UI Automation unavailable: {exc}") from exc
+            raise DesktopUnavailable(f"Windows UI Automation unavailable ({type(exc).__name__})") from exc
         for el in wrappers[:300]:
             try:
                 info = el.element_info
