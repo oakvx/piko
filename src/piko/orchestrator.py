@@ -96,6 +96,32 @@ class Agent:
             self._state(session, SessionState.FAILED)
             raise
 
+    async def prepare_from_plan(self, session_id: str, plan: Plan) -> Session:
+        """Review an existing typed Skill plan without trusting it as executable."""
+        session = self.sessions[session_id]
+        if session.state != SessionState.IDLE:
+            raise InvalidTransition("Only new sessions may review a Skill")
+        session = self._state(session, SessionState.OBSERVING)
+        try:
+            observed = await asyncio.to_thread(self._observation, session)
+            session = self._state(session, SessionState.ANALYZING)
+            # A saved Skill, like LLM output, is untrusted. Check grants and
+            # every currently targeted UIA element before user review.
+            known = {e.automation_id for e in observed.elements if not e.is_password}
+            for action in plan.actions:
+                self.permissions.check(session.app_executable, session.id, action)
+                if action.automation_id and action.automation_id not in known:
+                    raise RuntimeError(f"Skill target unavailable: {action.automation_id}")
+            session = self._state(session, SessionState.PLANNING)
+            session = session.model_copy(update={"plan": plan})
+            self.sessions[session.id] = session
+            return self._state(session, SessionState.WAITING_FOR_USER)
+        except Exception as exc:
+            session = session.model_copy(update={"error": str(exc)})
+            self.sessions[session.id] = session
+            self._state(session, SessionState.FAILED)
+            raise
+
     async def run(self, session_id: str) -> Session:
         session = self.sessions[session_id]
         if session.state not in {SessionState.WAITING_FOR_USER, SessionState.PAUSED} or not session.plan:
