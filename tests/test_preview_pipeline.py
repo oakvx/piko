@@ -23,6 +23,7 @@ def test_preview_gating_and_release_files():
                                  jobs["windows-gui-smoke"]["steps"])
     assert "python -m pytest -q tests/windows" in windows_gui_runs
     assert (ROOT / "tests/windows/test_real_skill_cycle.py").is_file()
+    assert (ROOT / "tests/windows/test_real_teach_skill.py").is_file()
     assert jobs["windows-installer-smoke"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer-smoke"]["needs"] == ["windows-installer"]
     assert jobs["publish-preview"]["needs"] == ["windows-installer", "windows-installer-smoke", "sbom"]
