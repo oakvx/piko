@@ -1,9 +1,11 @@
 """Locally stored Skill drafts: explicit review, no arbitrary script execution."""
 from __future__ import annotations
 
+import io
 import json
 import re
 import shutil
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -117,6 +119,63 @@ class SkillLibrary:
             staged.write_text(content, encoding="utf-8")
             staged.replace(target)
         return metadata
+
+    def rollback_draft(self, slug: str, revision: int) -> dict:
+        """Create a *new* draft revision from a safely archived old draft."""
+        folder = self._folder(slug)
+        if revision < 1:
+            raise SkillError("Invalid revision")
+        archived = folder / "revisions" / f"revision-{revision}"
+        if archived.is_symlink():
+            raise SkillError("Unsafe revision archive")
+        files = [archived / "metadata.json", archived / "plan.json"]
+        if not all(item.is_file() and not item.is_symlink() for item in files):
+            raise SkillError("Requested revision not found")
+        old = json.loads(files[0].read_text(encoding="utf-8"))
+        plan = Plan.model_validate_json(files[1].read_text(encoding="utf-8"))
+        if old.get("status") != "draft":
+            raise SkillError("Only draft revisions can be rolled back")
+        return self.revise_draft(slug, old["description"], plan)
+
+    def export_archive(self, slug: str) -> bytes:
+        """Export only typed data. Never embed external scripts or extensions."""
+        folder = self._folder(slug)
+        executable, plan = self.load_plan(slug)
+        metadata_path = folder / "metadata.json"
+        if metadata_path.is_symlink():
+            raise SkillError("Unsafe metadata link")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if metadata["executable"] != executable:
+            raise SkillError("Inconsistent Skill executable")
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("metadata.json", json.dumps(metadata, indent=2))
+            archive.writestr("plan.json", plan.model_dump_json(indent=2))
+        return output.getvalue()
+
+    def import_archive(self, payload: bytes) -> Path:
+        """Import cannot authorize execution or a claimed verified status."""
+        if not isinstance(payload, bytes) or not 1 <= len(payload) <= 1_000_000:
+            raise SkillError("Skill archive size invalid")
+        try:
+            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                infos = archive.infolist()
+                if set(info.filename for info in infos) != {"metadata.json", "plan.json"}:
+                    raise SkillError("Unexpected archive entries or executable extensions")
+                if any(info.file_size > 250_000 or info.is_dir() for info in infos):
+                    raise SkillError("Oversized or invalid Skill entry")
+                metadata = json.loads(archive.read("metadata.json"))
+                plan = Plan.model_validate_json(archive.read("plan.json"))
+        except (zipfile.BadZipFile, KeyError) as exc:
+            raise SkillError("Invalid Skill archive") from exc
+        slug = metadata.get("name")
+        executable = metadata.get("executable")
+        if not isinstance(slug, str) or not isinstance(executable, str):
+            raise SkillError("Missing Skill identity")
+        if not re.fullmatch(r"[a-zA-Z0-9_.-]+\\.exe", executable, re.I):
+            raise SkillError("Imported executable must be a basename")
+        return self.save_draft(slug, str(metadata.get("description", "Imported draft"))[:500],
+                               executable.casefold(), plan)
 
     def record_run(self, slug: str, session_id: str, succeeded: bool) -> None:
         folder = self._folder(slug)
