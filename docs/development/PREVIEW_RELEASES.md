@@ -1,10 +1,10 @@
 # Windows previews — one installer per successful main commit
 
-> **Status:** Pipeline source authored and Python checks passed. No installer has yet been compiled on a Windows runner; the intended GitHub repository `oakvx/Pico` has not been created.
+> **Status:** The repository `oakvx/piko` exists and GitHub Actions is active. Verify the latest workflow and Releases before claiming an installer exists. Successful compilation is not a clean Windows installation test.
 
 ## Publishing contract
 
-The [CI workflow](../../.github/workflows/ci.yml) runs on pushes to any branch, pull requests, and manual dispatches.
+The [CI workflow](../../.github/workflows/ci.yml) runs on pushes to `main`, pull requests, and manual dispatches.
 
 1. Run tests with Python 3.11 and 3.13 on Windows and Linux.
 2. Compile the React frontend and validate TypeScript.
@@ -16,7 +16,7 @@ The [CI workflow](../../.github/workflows/ci.yml) runs on pushes to any branch, 
 
 A rerun updates assets on the same tag rather than duplicating a release. `contents: write` is scoped to the release job; other jobs are read-only. A failed build produces **no prerelease**. Workflow dispatch on `main` may republish the existing commit's assets.
 
-**Scope:** Every commit pushed to `main` produces its own preview *if all verification and packaging jobs pass*. A feature-branch push gets an installer as a workflow artifact, but not an unreviewed public release. Merge the PR to publish the resulting main commit.
+**Scope:** Every commit pushed to `main` produces its own preview *if all verification and packaging jobs pass*. Pull requests can produce installer workflow artifacts after quality gates pass, but never publish a public prerelease. Merge the PR to publish the resulting main commit.
 
 The installer version is stamped as `0.1.<workflow-run-number>` in CI only. No generated version commit is added to the source branch. A version number above 65535 currently requires a revised version scheme.
 
@@ -26,18 +26,11 @@ The installer contains the React UI, Rust host and PyInstaller Python backend. I
 
 Start Ollama if it is not running; open **System** to choose an installed reasoning model and, optionally, a model supporting vision. Models are not assumed to exist. In development, `piko serve` can still be started manually.
 
-## First publication
+## Current repository and quality gates
 
-The connected GitHub toolset currently cannot create repositories. Once `Pico` is created under `oakvx` with an empty default `main` branch (do not auto-create a README), publish the existing history:
+The existing repository is [oakvx/piko](https://github.com/oakvx/piko) on `main`. Commits should be reviewed through a PR, and only validated merges on `main` trigger prerelease publication. Native input, application switching, real Ollama output, screenshot authorization and clean-install behavior still require controlled hands-on Windows verification.
 
-```bash
-git remote add origin https://github.com/oakvx/Pico.git
-git push -u origin main
-```
-
-To restore from the delivered bundle: `git clone piko-local-history.bundle pico`. The person who owns a repository is not automatically the author of commits. Do not rewrite history to falsify author information; leave commits attributed to their actual contributors or automation.
-
-Make sure Actions are enabled and the repository permits the preview release job's scoped `contents: write` permission.
+The temporary `npm install` steps are not reproducible: commit a reviewed lockfile and replace them with `npm ci`. Python and Rust dependencies likewise require a documented lock/update policy before a stable release.
 
 ## Before recommending distribution
 
