@@ -1,4 +1,6 @@
 """Negative authorization and input ownership tests runnable off Windows."""
+import threading
+
 import pytest
 
 from piko.contracts import Action, Expectation, Observation, UIElement
@@ -87,6 +89,68 @@ def test_emergency_stop_aborts_and_releases_injected_key():
     assert sent == [(0x11, True), (0x11, False)]
     with pytest.raises(InputStopped):
         guard.chord((0x09,), lambda: None)
+
+
+def test_emergency_releases_owned_key_while_foreground_check_is_hung():
+    """Emergency key-up must not wait for an unresponsive native check."""
+    sent = []
+    check_entered = threading.Event()
+    permit_check_to_finish = threading.Event()
+    errors = []
+    guard = OwnedKeyboard(lambda key, down: sent.append((key, down)),
+                          lambda _key: False)
+    guard.begin_session()
+
+    def check_target():
+        if len(sent) == 1:
+            check_entered.set()
+            assert permit_check_to_finish.wait(timeout=10)
+
+    def worker():
+        try:
+            guard.chord((0x11, 0x41), check_target)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    try:
+        assert check_entered.wait(timeout=3), "Worker did not reach blocked check"
+        # While validation remains stuck, no new chord may begin.
+        with pytest.raises(InputStopped, match="still active"):
+            guard.begin_session()
+        guard.release_all()
+        assert sent == [(0x11, True), (0x11, False)]
+    finally:
+        permit_check_to_finish.set()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], InputStopped)
+    # The old validation returning must not authorize the next key-down.
+    assert sent == [(0x11, True), (0x11, False)]
+
+
+def test_window_switch_during_target_lookup_refuses_invoke():
+    bridge = object.__new__(WindowsDesktop)
+    foreground = [(101, 24, "demo.exe", "Fixture")]
+    bridge._foreground = lambda: foreground[0]
+    invoked = []
+
+    class Button:
+        def is_enabled(self):
+            return True
+
+        def invoke(self):
+            invoked.append("unsafe")
+
+    def lookup(_automation_id, _hwnd):
+        foreground[0] = (202, 25, "evil.exe", "Foreign")
+        return Button()
+
+    bridge._target = lookup
+    with pytest.raises(DesktopUnavailable, match="changed"):
+        bridge.execute_observed(click(), observation())
+    assert invoked == []
 
 
 def test_process_id_reuse_refused_even_when_hwnd_pid_and_name_match():

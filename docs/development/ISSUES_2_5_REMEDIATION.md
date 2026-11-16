@@ -1,6 +1,6 @@
 # Issue remediation — 16 November 2026
 
-This document describes **source changes proposed in PR #6**, not a declaration that all product acceptance gates have passed. CI status is authoritative at [GitHub Actions](https://github.com/oakvx/piko/actions).
+This document tracks **merged remediation from PR #6 and follow-up release hardening**, not a declaration that all product acceptance gates have passed. CI status is authoritative at [GitHub Actions](https://github.com/oakvx/piko/actions).
 
 ## Issue #2 — Windows input trust boundary
 
@@ -10,6 +10,7 @@ This document describes **source changes proposed in PR #6**, not a declaration 
 - Owned keyboard chords reject keys already physically held by the user; only keys injected by Piko are released at cancellation and on failure.
 - Negative tests cover foreign HWND/PID, unbound calls, held user keys and emergency cancellation.
 - A follow-up input boundary also binds observed controls to Windows process creation time to reject PID reuse (same HWND/PID/executable but different process lifetime). Observation checks the same pinned window both after UIA enumeration and before/after screenshot capture to avoid returning pixels from a switched foreground application; regression fixtures simulate a switch during collection.
+- Follow-up hardening separates serial chord ownership from its pressed-key ledger: an emergency stop immediately releases agent-owned keys even while a foreground/UIA validation callback is blocked. A concurrent-thread negative test asserts no new injection after that blocked callback eventually returns, and new sessions refuse while a previous chord is still running.
 - A real Windows CI testbench exercises WinForms and an unauthorized foreground process switch.
 - **Still limited:** Native UIA COM operations may block and cannot guarantee an immediate hard kill. Windows security boundary requires stronger token-privilege isolation and long-running stress/hardware testing.
 
@@ -28,7 +29,9 @@ This document describes **source changes proposed in PR #6**, not a declaration 
 - Windows installer version stamping updates only the local package versions in package manifests and locks.
 - Production npm audit, RustSec audit and pinned-Windows Python pip-audit are mandatory CI checks. Fix actual dependency vulnerabilities; never suppress audit failures for a release.
 - GitHub's dependency-review-action could not run because its repository dependency graph is unavailable, so independent scans are used instead.
-- **Still limited:** action workflow references are not all SHA-pinned, Python lock currently pins versions without wheel hash verification, and platform-specific SBOM/license compliance needs additional independent review.
+- The previous main-merge run 43938456193 failed only when the RustSec action attempted to write a GitHub Check with a read-only workflow token, despite reporting zero RustSec vulnerabilities. The scanner now runs directly against the locked Cargo dependency graph with a failing exit code on discovered vulnerabilities; the Check API permission is deliberately not granted.
+- All official GitHub Actions workflow references are pinned to 40-character commit SHAs resolved from upstream v4/v5 tags, with a regression test rejecting moving tags.
+- **Still limited:** Python lock pins versions without wheel hash verification, and platform-specific SBOM/license compliance needs additional independent review. RustSec advisory warnings about unmaintained or unsound packages are reported even when no vulnerabilities cause audit failure.
 
 ## Issue #4 — End-to-end Windows and Ollama acceptance
 

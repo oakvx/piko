@@ -24,8 +24,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ['3.11', '3.13']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -43,8 +43,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
       - name: Install native Windows UIA bindings
@@ -62,8 +62,8 @@ jobs:
       run:
         working-directory: apps/desktop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
@@ -83,12 +83,12 @@ jobs:
     needs: [python, frontend, python-dependency-audit, rust-dependency-audit, windows-gui-smoke]
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
           cache: pip
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
@@ -111,7 +111,7 @@ jobs:
       - name: Verify and name installer artefacts
         shell: pwsh
         run: ./scripts/ci/collect-installer.ps1 -Commit "${{ github.sha }}" -Build "${{ github.run_number }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: piko-installer-${{ github.sha }}
           path: |
@@ -124,18 +124,25 @@ jobs:
     name: Audit pinned Rust crates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ github.token }}
-          working-directory: apps/desktop/src-tauri
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Run the RustSec scanner directly. The rustsec/audit-check action
+      # tries to create GitHub Checks for advisory warnings; the workflow's
+      # read-only token cannot do so, which previously blocked all prereleases
+      # even when RustSec reported zero security vulnerabilities.
+      - name: Install locked RustSec scanner
+        run: cargo install --locked --version 0.23.0 cargo-audit
+      - name: Audit exact released Cargo.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo audit --file apps/desktop/src-tauri/Cargo.lock
 
   python-dependency-audit:
     name: Audit pinned Windows Python packages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
       - name: Install vulnerability scanner
@@ -155,7 +162,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: piko-installer-${{ github.sha }}
           path: distribution
