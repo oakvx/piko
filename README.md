@@ -1,24 +1,61 @@
-# Piko
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:ff5c8a,100:ffb347&height=240&section=header&text=piko&fontSize=96&fontColor=ffffff&fontAlignY=38&desc=Show%20me.%20I'll%20do%20it.&descSize=24&descAlignY=60&animation=fadeIn" alt="Piko. Show me. I'll do it." width="100%">
+</p>
 
-**Show me. I'll do it.**
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=20&pause=1000&color=FF5C8A&center=true&vCenter=true&width=640&height=40&lines=Observe.;Plan.;You+approve.;Execute.;Verify." alt="Observe. Plan. You approve. Execute. Verify.">
+</p>
 
-Piko is an experimental, local-first computer-use agent for Windows 10/11 x64. Its control logic, permissions and local data model are purpose-built; it does **not** embed a generic agent framework or a prebuilt AI dashboard.
+<p align="center">
+  <a href="https://github.com/oakvx/piko/actions"><img alt="CI" src="https://github.com/oakvx/piko/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/oakvx/piko/releases"><img alt="Latest preview" src="https://img.shields.io/github/v/release/oakvx/piko?include_prereleases&label=preview&color=ff5c8a&style=flat-square"></a>
+  <img alt="Status" src="https://img.shields.io/badge/status-alpha-ffb347?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-0078D4?logo=windows&logoColor=white&style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11%E2%80%933.13-3776AB?logo=python&logoColor=white&style=flat-square">
+  <img alt="Local first" src="https://img.shields.io/badge/inference-local%20only-2ea44f?style=flat-square">
+  <img alt="Ollama" src="https://img.shields.io/badge/runs%20on-Ollama-000000?style=flat-square">
+</p>
 
-> **Development status:** `0.1.0a0`, an incomplete prototype, **not** a general-purpose autonomous desktop agent. The Python core is portable; Windows automation, Tauri packaging and Ollama model inference still require Windows-machine validation. Do not use it for sensitive, destructive or financial tasks.
+<h3 align="center">An agent that uses your PC like you do, and asks before it touches anything.</h3>
 
-## What works in the code today
+<!-- Uncomment once you have recorded it (ScreenToGif, 10-15s on the testbench), and upload it via an issue or put it in docs/:
+<p align="center">
+  <img src="docs/demo.gif" alt="Piko observing a window, proposing a plan and executing it after approval" width="860">
+</p>
+-->
 
-- Explicit session state machine and SQLite session/event storage, with interrupted sessions marked failed after restart.
-- User-scoped permission grants and safe, validated UI Automation actions.
-- Local Ollama model discovery, structured JSON planning and optional screenshot interpretation.
-- Observe → plan → user review → execute → verify control flow, with cancellable sessions.
-- Opt-in 30-second screenshot demonstration recorder, **not** yet full learning from demonstration.
-- Draft `SKILL.md` generation from reviewed plans. Drafts are never advertised as verified.
-- Token-protected, loopback-only API, and the original Piko Workfield React/Tauri interface. The Windows installer pipeline runs on GitHub-hosted Windows workers; successful compilation is not evidence of a clean-machine installation. Consult the live GitHub Actions and Releases pages for actual installer status.
+Piko looks at the app in front of it, writes a plan with a local Ollama model, waits for you to read it, and only then clicks and types. No cloud, no background screen stream, no action without your approval.
 
-## Run on Windows
+> [!WARNING]
+> **`0.1.0a0`, early prototype.** The Python core is tested on Linux with fakes. Windows automation, the Tauri app and real Ollama output still need validation on a real Windows machine. Don't point it at anything sensitive, destructive or financial.
 
-Install Python 3.11–3.13, a compatible Ollama build, and a local reasoning model with structured JSON output. The vision model is optional until a supported one is installed.
+## How it works
+
+```mermaid
+%%{init: {'theme':'dark','themeVariables':{'primaryColor':'#10141e','primaryBorderColor':'#ff5c8a','primaryTextColor':'#f5f6fa','lineColor':'#ffb347','fontFamily':'monospace'}}}%%
+flowchart LR
+    A["01 Observe<br/><sub>UI Automation</sub>"] --> B["02 Plan<br/><sub>local model, JSON</sub>"]
+    B --> C{"03 Review<br/><sub>you approve</sub>"}
+    C -- approve --> D["04 Execute<br/><sub>granted apps only</sub>"]
+    C -- reject --> X(["Stop"])
+    D --> E["05 Verify<br/><sub>UIA elements match</sub>"]
+    E -- mismatch --> F(["Fail"])
+    style C stroke:#ffb347,stroke-width:3px
+```
+
+| Step | What happens |
+|---|---|
+| **Observe** | Reads the foreground window through Windows UI Automation. Screenshots only when you ask. |
+| **Plan** | The local model returns a structured JSON plan. |
+| **Review** | You read it. Nothing runs until you approve. |
+| **Execute** | Actions run only in apps you granted for this session. |
+| **Verify** | Piko checks the expected UI elements are there afterwards. |
+
+Cancel any time. Pause takes effect at the next action boundary.
+
+## Quick start
+
+Windows 10/11 x64, Python 3.11–3.13, Ollama, and a local model that can produce structured JSON. A vision model is optional.
 
 ```powershell
 py -m venv .venv
@@ -28,21 +65,68 @@ ollama list
 piko serve --model YOUR_INSTALLED_MODEL --vision-model YOUR_VISION_MODEL
 ```
 
-In manual developer mode, the command prints a one-time token for the desktop UI. In an installed release, the desktop host launches the bundled backend automatically and supplies an ephemeral token through local IPC; no manual token entry is required. The API is loopback-only.
+From source, `piko serve` prints a one-time token to paste into the UI. With an installed release the desktop app starts the backend itself and hands over the token through local IPC.
 
-The Workfield desktop UI can be developed with `cd apps/desktop; npm install; npm run dev`. Run `npm run check` and `npm run build` to validate the TypeScript frontend. Build a Tauri executable with `npm run tauri build` after installing the Rust toolchain, Microsoft C++ build tools and WebView2. **The NSIS installer is built in Windows CI when quality gates pass, but installing, uninstalling and exercising it on a clean Windows computer remain separate acceptance gates.**
+Or grab a build from [Releases](https://github.com/oakvx/piko/releases). Read [Windows installer](#windows-installer) first.
 
-**Build caveat:** the React/TypeScript frontend has passed GitHub Actions checks; however, `package-lock.json` is still missing, so JavaScript installs are not reproducible. CI temporarily uses `npm install`; generate and commit a lockfile, then use `npm ci` and dependency caching. See [Workfield design](docs/architecture/WORKFIELD.md).
+<details>
+<summary><b>Desktop UI (Workfield) from source</b></summary>
 
-For a controlled Windows automation fixture, open a second PowerShell terminal and run:
+```sh
+cd apps/desktop
+npm install
+npm run dev
+```
+
+`npm run check` and `npm run build` validate the frontend. `npm run tauri build` also needs Rust, the Microsoft C++ build tools and WebView2. See [Workfield design](docs/architecture/WORKFIELD.md).
+
+There is no `package-lock.json` yet, so JS installs aren't reproducible and CI uses `npm install`. Next step: commit a lockfile and move to `npm ci`.
+
+</details>
+
+<details>
+<summary><b>Try it on a safe target</b></summary>
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File examples/testbench.ps1
 ```
 
-Grant only the testbench executable for the task at hand, keep it foregrounded, review the returned plan, then explicitly execute. The testbench is not currently integrated into the CI GUI runner.
+Run it in a second terminal, grant Piko access to the testbench only, keep it in the foreground, read the plan, approve. The testbench isn't in the CI GUI runner yet.
 
-## Test locally
+</details>
+
+## What's in the repo
+
+- Session state machine on SQLite. Sessions interrupted by a restart are marked failed.
+- Per-session, per-app permissions and validated UI Automation actions.
+- Ollama model discovery, JSON planning, optional screenshot interpretation.
+- Opt-in 30-second screenshot recorder for demonstrations.
+- Draft `SKILL.md` files from reviewed plans, always labeled as drafts.
+- Loopback-only, token-protected API.
+- Workfield, the React/Tauri interface.
+
+## Safety
+
+| Rule | |
+|---|---|
+| No autonomous default | Every run needs an app permission for the session and explicit plan approval. |
+| Local inference only | No cloud provider is configured. |
+| Screenshots on request | One at a time. No background stream. |
+| Credentials blocked | Password-field and credential windows are refused. |
+| Loopback API | Not reachable from the network. |
+
+Details: [Security constraints](docs/security/BOUNDARIES.md).
+
+## Known limitations
+
+- Capture uses `mss` on the foreground window, not Windows.Graphics.Capture. A partly covered window can be captured wrong.
+- Depends on the accessibility metadata apps expose. No general OCR, no coordinate grounding.
+- The demo recorder saves screenshots only. No keyboard or mouse capture, and no path from demonstration to a verified skill yet.
+- Plans are made once, not revised mid-run. Verification needs matching UIA elements.
+- Cancel and pause can't interrupt an OS call already in flight. A resumed session re-validates the next action.
+- No offline gaming adapter, no live screen streaming, no long autonomous runs.
+
+## Tests
 
 ```sh
 python -m pip install -e '.[dev]'
@@ -50,29 +134,20 @@ python -m pytest -q
 python -m compileall -q src tests
 ```
 
-Running these tests on Linux proves contract, state, permission and persistence behavior **with test fakes only**. It does not validate real Windows input, screen capture or Ollama output.
+These use fakes. They cover contracts, state, permissions and persistence, and say nothing about real Windows input, capture or Ollama output.
 
-## Security model
+## Windows installer
 
-There is **no autonomous default**. No user action is dispatched without a session-scoped application permission and explicit plan approval. No cloud inference provider is configured. Screenshot capture is only performed on request. Credentials and password-field windows are blocked. See [Security constraints](docs/security/BOUNDARIES.md).
+Every push and PR builds an NSIS x64 installer with the Python backend bundled. Green builds on `main` are published as prereleases with a SHA-256 checksum.
 
-## Current limitations
+A green build means it compiled, nothing more. Installing, uninstalling and running it on a clean Windows machine hasn't been signed off. Check [Actions](https://github.com/oakvx/piko/actions) and [Releases](https://github.com/oakvx/piko/releases) for what exists, and [Preview releases](docs/development/PREVIEW_RELEASES.md) for how the pipeline works.
 
-- Visual capture uses a foreground-window `mss` fallback rather than Windows.Graphics.Capture. Occluded windows may be captured incorrectly.
-- UIA semantics depend on accessibility metadata; generic OCR and coordinate-grounding are not implemented.
-- Demonstration recording lacks keyboard/mouse input event capture, procedural induction and test-derived skill verification.
-- Plans are generated once, not continually re-planned; verification requires matching UIA elements.
-- Input actions run through Windows UIA and cannot guarantee immediate cancellation mid-OS call.
-- No tested offline gaming adapter, continuous live screen streaming, or long-running autonomous execution.
-- Workfield supports explicitly requested, permission-gated one-shot screenshot captures (not a background screen stream).
-- Pause is requested at an action boundary; the next action is revalidated on resume. In-flight OS calls cannot be interrupted instantly.
+## Credits
 
-See [Architecture](docs/architecture/DECISIONS.md) for design choices and [Windows preview releases](docs/development/PREVIEW_RELEASES.md) for CI, packaging and publishing instructions.
+Orchestration, state machine, Skill schema, UI and mascot were written for Piko. It builds on Python, FastAPI, SQLite, the Ollama API, Windows UI Automation, React and Tauri. No third-party agent framework, prompt pack, mascot or UI template is included.
 
-## Provenance
+Design notes: [Architecture](docs/architecture/DECISIONS.md).
 
-The orchestration, state-machine logic, Skill schema, user interface and mascot are authored specifically for Piko. Established components (Python, FastAPI, SQLite, Ollama API, Windows UI Automation, React and Tauri) are used as infrastructure, **not** as an existing agent implementation. No third-party mascot, agent prompt package or premade AI application theme is included.
-
-## Windows previews
-
-GitHub Actions is configured to build an NSIS Windows x64 installer with a bundled Python sidecar on every push and PR; successful `main` commits are tagged as separate **prereleases**. Each build attaches a SHA-256 checksum and an executable. This repository is active. An installer is available only if its Windows workflow, checksum verification and prerelease publication have actually succeeded; consult [Actions](https://github.com/oakvx/piko/actions) and [Releases](https://github.com/oakvx/piko/releases). See [Preview releases](docs/development/PREVIEW_RELEASES.md). No cloud models are installed automatically.
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:ffb347,100:ff5c8a&height=100&section=footer" width="100%" alt="">
+</p>
