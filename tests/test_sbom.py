@@ -54,7 +54,7 @@ def test_lock_inventory_is_reproducible_and_source_bound(tmp_path):
     assert {c["purl"] for c in first["components"]} == {
         "pkg:pypi/fastapi@0.163.1",
         "pkg:pypi/pydantic-core@2.50.4",
-        "pkg:npm/%40scope%2Flib@1.2.3",
+        "pkg:npm/%40scope/lib@1.2.3",
         "pkg:npm/leaf@4.5.6",
         "pkg:cargo/tauri@2.9.5",
     }
