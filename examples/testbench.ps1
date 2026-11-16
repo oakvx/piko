@@ -16,7 +16,7 @@ $nameInput.Name = 'NameInput'; $nameInput.AccessibleName = 'NameInput'
 $nameInput.Location = New-Object System.Drawing.Point(140,30)
 $nameInput.Width = 270
 $status = New-Object System.Windows.Forms.Label
-$status.Name = 'StatusLabel'; $status.AccessibleName = 'StatusLabel'
+$status.Name = 'StatusLabel'
 $status.Text = 'Waiting'; $status.Location = New-Object System.Drawing.Point(140,150)
 $status.AutoSize = $true
 $save = New-Object System.Windows.Forms.Button
