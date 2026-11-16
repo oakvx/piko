@@ -8,6 +8,7 @@ python -m PyInstaller --clean --noconfirm --onefile --console --name piko-agent 
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed' }
 $target = 'x86_64-pc-windows-msvc'
 $destination = Join-Path $root "apps/desktop/src-tauri/binaries/piko-agent-$target.exe"
+New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
 Copy-Item (Join-Path $root 'dist/piko-agent.exe') $destination -Force
 & $destination --help
 if ($LASTEXITCODE -ne 0) { throw 'Packed Python backend did not launch' }
