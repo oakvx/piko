@@ -409,6 +409,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             for action in request.plan.actions:
                 if action.automation_id and action.automation_id not in known:
                     raise ValueError("Corrected Skill action has an unobserved UI target")
+                if action.expected.automation_id not in known:
+                    raise ValueError("Corrected Skill outcome has an unobserved UI target")
             if request.plan.actions[-1].expected.property == "exists":
                 raise ValueError("A pre-existing element cannot prove final task success")
             if any(a.expected.value == "REPLACE_WITH_OBSERVED_OUTCOME"
