@@ -51,6 +51,7 @@ class SkillImportRequest(BaseModel):
 
 class SkillReviewRequest(BaseModel):
     authorize_foreground_app: bool
+    parameters: dict[str, str] = Field(default_factory=dict, max_length=12)
 
 
 class SkillRevisionRequest(BaseModel):
@@ -291,7 +292,9 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Desktop inputs currently in use")
         try:
-            executable, plan = skills.load_plan(slug)
+            # Bind only user-entered literal text/expectations. Never allow
+            # a Skill parameter to select an executable, UIA target or hotkey.
+            executable, plan = skills.prepare_plan(slug, request.parameters)
             session = agent.create(plan.objective, executable)
             permissions.grant(Grant(executable=executable, profile=AccessProfile.LIMITED,
                                     session_id=session.id))
