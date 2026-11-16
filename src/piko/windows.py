@@ -395,7 +395,7 @@ class WindowsDesktop:
         elif action.kind == ActionKind.HOTKEY:
             # PermissionManager checked the exact allowlist before dispatch.
             codes = {"ctrl": 0x11, "tab": 0x09, "escape": 0x1B,
-                     "a": 0x41, "c": 0x43, "v": 0x56}
+                     "a": 0x41, "c": 0x43, "v": 0x56, "w": 0x57}
             keys = tuple(codes[key.casefold()] for key in action.keys)
             def check_target() -> None:
                 self._assert_active(expected)
