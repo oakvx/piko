@@ -24,10 +24,13 @@ needed to obtain packages; inference after installation uses
    Piko fails closed and asks the user to focus it manually. Elevated/admin
    windows and restricted game processes may be inaccessible.
 
-**Background UIA is not background pixel capture.** If the selected target is
-not foreground, Piko uses its semantic UIA tree without inventing or capturing
-pixels from an unrelated foreground window. Screen-based reasoning is used
-only when current pixels can be safely acquired from the approved window.
+**Background UIA is always available when Windows permits it.** On supported
+Windows/Pillow versions Piko additionally attempts HWND-specific background
+pixel capture via Pillow ImageGrab, with process-lifetime verification both
+before and after capture. Some GPU-accelerated, protected, minimized or
+exclusive-fullscreen windows provide blank pixels: in this case Piko safely
+falls back to its semantic UIA tree without capturing the unrelated
+foreground application. No background screenshots are fabricated.
 
 For browser tab closure, the limited keyboard allowlist now permits reviewed
 `Ctrl+W`, but the agent must observe a meaningful window-title change before
