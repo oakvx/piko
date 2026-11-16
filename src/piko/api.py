@@ -232,6 +232,10 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/models/selection", dependencies=[Depends(auth)])
     async def select_models(request: ModelSelectionRequest):
+        if ":cloud" in request.reasoning_model.casefold() or (
+            request.vision_model and ":cloud" in request.vision_model.casefold()
+        ):
+            raise HTTPException(status_code=422, detail="Cloud models are not supported; Piko inference stays local")
         if coach.status()["active"]:
             raise HTTPException(status_code=409, detail="Stop local screen coaching before changing models")
         if any(not task.done() for task in running.values()):
