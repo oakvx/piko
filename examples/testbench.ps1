@@ -1,10 +1,11 @@
 # Controlled Windows Forms app for real desktop automation verification.
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File examples/testbench.ps1
+param([string]$Title = 'Piko Testbench')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Piko Testbench'
+$form.Text = $Title
 $form.Width = 520
 $form.Height = 320
 $form.StartPosition = 'CenterScreen'
