@@ -164,6 +164,10 @@ class WindowsDesktop:
         return {"pid": pid.value, "started": actual_start, "title": title.value,
                 "executable": actual_name}
 
+    def is_window_foreground(self, hwnd: int) -> bool:
+        """Read-only check used by live coaching before any frame capture."""
+        return self._foreground()[0] == hwnd
+
     def observe_window(self, hwnd: int, executable: str,
                        include_image: bool = False,
                        expected: Observation | None = None) -> Observation:
@@ -190,9 +194,41 @@ class WindowsDesktop:
         )
         if any(e.is_password for e in elements):
             raise DesktopUnavailable("Sensitive password field detected; observation blocked")
+        image_base64 = None
+        capture_bounds = None
+        if include_image and not ctypes.windll.user32.IsIconic(hwnd):
+            # Pillow 11.2.1+ uses Windows' HWND-specific capture path. Unlike
+            # a desktop rectangle it cannot grab an unrelated foreground app.
+            # Some GPU, DRM and minimized windows return blank/inaccessible
+            # pixels: fail softly to semantic UIA, never hallucinate a frame.
+            from PIL import ImageGrab
+            bounds = wintypes.RECT()
+            if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(bounds)):
+                width = bounds.right - bounds.left
+                height = bounds.bottom - bounds.top
+                if 2 <= width <= 8192 and 2 <= height <= 8192:
+                    try:
+                        picture = ImageGrab.grab(window=hwnd).convert("RGB")
+                        self._assert_window(
+                            hwnd, executable, identity["pid"], identity["started"])
+                        extrema = picture.getextrema()
+                        if picture.width > 1 and picture.height > 1 and any(
+                            hi - lo >= 3 for lo, hi in extrema
+                        ):
+                            out = io.BytesIO()
+                            picture.save(out, format="PNG")
+                            image_base64 = base64.b64encode(out.getvalue()).decode("ascii")
+                            capture_bounds = (bounds.left, bounds.top,
+                                              picture.width, picture.height)
+                    except (OSError, ValueError, RuntimeError):
+                        # Target capture unavailable; do not fall back to grabbing
+                        # whatever different window happens to be foreground.
+                        pass
+        self._assert_window(hwnd, executable, identity["pid"], identity["started"])
         return Observation(window_title=refreshed["title"], executable=executable.casefold(),
                            process_id=identity["pid"], window_handle=hwnd,
-                           process_started_at=identity["started"], elements=elements)
+                           process_started_at=identity["started"], elements=elements,
+                           image_base64=image_base64, capture_bounds=capture_bounds)
 
     def activate_window(self, expected: Observation) -> None:
         """Foreground *only* the already reviewed HWND before approved input."""
