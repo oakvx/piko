@@ -51,6 +51,13 @@ class SkillRevisionRequest(BaseModel):
     plan: Plan
 
 
+class TeachDraftRequest(BaseModel):
+    slug: str = Field(min_length=1, max_length=64)
+    description: str = Field(min_length=1, max_length=500)
+    plan: Plan
+    confirmed_user_corrections: bool = False
+
+
 def data_root() -> Path:
     return Path(os.environ.get("PIKO_DATA_DIR") or
                 (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Piko"))
@@ -311,6 +318,43 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             return {"id": result["id"], "frames": result["frames"], "recording": False,
                     "limitations": result["limitations"]}
         except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/teach/{identifier}/analysis", dependencies=[Depends(auth)])
+    async def teach_analysis(identifier: str):
+        try:
+            return teach.analyze(identifier)
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/teach/{identifier}/draft", dependencies=[Depends(auth)])
+    async def teach_save_corrected_draft(identifier: str, request: TeachDraftRequest):
+        if not request.confirmed_user_corrections:
+            raise HTTPException(status_code=403, detail="User correction review required")
+        try:
+            analysis = teach.analyze(identifier)
+            # Observations alone are NOT evidence of a demonstration procedure.
+            if analysis["input_events"] < 1:
+                raise ValueError("No permitted input events to learn from")
+            manifest_path = teach.root / identifier / "manifest.json"
+            import json
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            known = {el["automation_id"]
+                     for event in manifest["events"] if event["type"] == "observation"
+                     for el in event["data"]["elements"] if el["automation_id"]}
+            for action in request.plan.actions:
+                if action.automation_id and action.automation_id not in known:
+                    raise ValueError("Corrected Skill action has an unobserved UI target")
+            if request.plan.actions[-1].expected.property == "exists":
+                raise ValueError("A pre-existing element cannot prove final task success")
+            if any(a.expected.value == "REPLACE_WITH_OBSERVED_OUTCOME"
+                   for a in request.plan.actions):
+                raise ValueError("Enter concrete expected outcomes before saving")
+            folder = skills.save_draft(request.slug, request.description, manifest["app"],
+                                       request.plan)
+            return {"saved": folder.name, "status": "draft", "verified": False,
+                    "source_demonstration": identifier}
+        except (ValueError, RuntimeError, OSError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.delete("/teach/{identifier}", dependencies=[Depends(auth)])
