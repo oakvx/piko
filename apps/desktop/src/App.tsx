@@ -611,7 +611,14 @@ export default function App() {
 
           <section className="route-panel"><div className="panel-top"><Kicker index="B">The route</Kicker><span className="route-count">{session?.plan ? `${session.next_action} / ${session.plan.actions.length} CONFIRMED` : 'NO ROUTE YET'}</span></div><RouteView session={session} events={events} focusedTarget={focusedTarget} onFocus={setFocusedTarget} frameAvailable={frame !== null} />
             <div className="route-actions">
-              {session?.state === 'waiting_for_user' && <div className="approval-area"><label className="consent-line"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} /><span>I've reviewed the route and authorize these actions.</span></label><button className="action-confirm" type="button" disabled={!reviewed || !!busy || !connected} onClick={() => client && invoke('execute', () => client.execute(session.id))}>Execute reviewed route <Mark name="arrow" /></button></div>}
+              {session?.state === 'waiting_for_user' && <div className="approval-area"><label className="consent-line"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} /><span>I've reviewed the route and authorize these actions.</span></label><button className="action-confirm" type="button" disabled={!reviewed || !!busy || !connected} onClick={() => client && invoke('execute', async () => {
+                  if (isTauri() && session.allow_activate && session.target_window_handle && session.target_process_id) {
+                    await tauriInvoke('focus_selected_window', {
+                      windowHandle: session.target_window_handle, processId: session.target_process_id,
+                    });
+                  }
+                  await client.execute(session.id);
+                })}>Execute reviewed route <Mark name="arrow" /></button></div>}
               {active && <div className="execution-controls"><button type="button" disabled={!!busy} onClick={() => client && invoke('pause', () => client.pause(session.id), 'Pause requested at the next safe action boundary.')}><Mark name="pause" size={16} /> Pause after step</button><button type="button" disabled={!!busy} onClick={() => client && invoke('stop', () => client.stop(session.id))}><Mark name="stop" size={16} /> Stop</button></div>}
               {session?.state === 'paused' && <div className="execution-controls"><button type="button" disabled={!!busy} onClick={() => client && invoke('resume', () => client.resume(session.id))}><Mark name="play" size={16} /> Resume with fresh checks</button><button type="button" disabled={!!busy} onClick={() => client && invoke('stop', () => client.stop(session.id))}><Mark name="stop" size={16} /> Cancel</button></div>}
               {session?.state === 'failed' && <p className="operation-note operation-note--error"><Mark name="stop" size={15} />{session.error || 'A required condition failed. No further steps were dispatched.'}</p>}
