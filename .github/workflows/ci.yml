@@ -51,11 +51,11 @@ jobs:
           python-version: '3.11'
       - name: Install native Windows UIA bindings
         run: python -m pip install -e ".[windows,dev]"
-      - name: Execute real foreground form automation
+      - name: Execute native UIA, full Agent and cross-restart Skill verification
         shell: pwsh
         env:
           PIKO_GUI_SMOKE: '1'
-        run: python -m pytest -q tests/windows
+        run: python -m pytest -q tests/windows/
 
   frontend:
     name: TypeScript and Vite
