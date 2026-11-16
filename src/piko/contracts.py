@@ -100,6 +100,8 @@ class Observation(StrictModel):
     executable: str
     # Native window identity; required for any real Windows input dispatch.
     window_handle: int | None = None
+    # Process creation time detects PID reuse across observation and dispatch.
+    process_started_at: float | None = None
     elements: list[UIElement]
     image_base64: str | None = Field(default=None, exclude=True)
     capture_bounds: tuple[int, int, int, int] | None = None
