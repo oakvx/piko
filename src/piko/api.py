@@ -361,7 +361,11 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             raise HTTPException(status_code=409, detail="Stop active desktop automation before recording")
         try:
             permissions.check_observe(request.executable, request.session_id or "teach")
-            identifier = await teach.start(request.executable, seconds)
+            identifier = await teach.start(
+                request.executable, seconds,
+                authorize_capture=lambda: permissions.check_observe(
+                    request.executable, request.session_id or "teach"),
+            )
             return {"id": identifier, "recording": True}
         except (ValueError, RuntimeError, PermissionError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

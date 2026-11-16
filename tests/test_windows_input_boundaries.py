@@ -409,3 +409,41 @@ def test_native_dispatch_refuses_inaccessible_ambiguous_or_secret_target(reason)
     bridge._target = deny
     with pytest.raises(DesktopUnavailable, match="UIA target"):
         bridge.execute_observed(click(), observation())
+
+
+def test_teach_scoped_capture_refuses_changed_window_before_pixels():
+    """Even a same-executable switch cannot reach UIA enumeration or mss."""
+    bridge = object.__new__(WindowsDesktop)
+    bridge._foreground = lambda: (202, 25, "demo.exe", "Other")
+    bridge._elements = lambda _hwnd: pytest.fail(
+        "Unauthorized screenshot must be rejected before UIA/pixel capture"
+    )
+    with pytest.raises(DesktopUnavailable, match="changed"):
+        bridge.observe_scoped(observation(), include_image=True)
+
+
+def test_teach_scoped_capture_rechecks_pid_lifetime_before_uia_enumeration():
+    bridge = object.__new__(WindowsDesktop)
+    bridge._foreground = lambda: (101, 24, "demo.exe", "Fixture")
+    bridge._process_started_at = lambda _pid: 300.0
+    bridge._elements = lambda _hwnd: pytest.fail("Reused process must never be observed")
+    approved = observation()
+    approved.process_started_at = 100.0
+    with pytest.raises(DesktopUnavailable, match="PID was reused"):
+        bridge.observe_scoped(approved, include_image=True)
+
+
+def test_teach_scoped_observation_preserves_authorized_foreground():
+    bridge = object.__new__(WindowsDesktop)
+    bridge._foreground = lambda: (101, 24, "demo.exe", "Fixture")
+    bridge._process_started_at = lambda _pid: 100.0
+    bridge._elements = lambda _hwnd: [
+        UIElement(automation_id="Save", control_type="Button")
+    ]
+    approved = observation()
+    approved.process_started_at = 100.0
+    actual = bridge.observe_scoped(approved)
+    assert actual.window_handle == approved.window_handle
+    assert actual.process_id == approved.process_id
+    assert actual.process_started_at == approved.process_started_at
+    assert actual.elements[0].automation_id == "Save"

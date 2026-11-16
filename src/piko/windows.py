@@ -134,8 +134,15 @@ class WindowsDesktop:
                 continue
         return elements
 
-    def observe(self, include_image: bool = False) -> Observation:
+    def observe(self, include_image: bool = False,
+                expected: Observation | None = None) -> Observation:
+        # A Teach capture must be scoped BEFORE requesting pixels, not merely
+        # discarded after accidentally observing a second foreground window.
+        if expected is not None:
+            self._assert_active(expected)
         hwnd, pid, executable, title = self._foreground()
+        if expected is not None:
+            self._assert_active(expected)
         started_at = self._process_started_at(pid)
         identity = Observation(window_title=title, executable=executable,
                                process_id=pid, window_handle=hwnd,
@@ -143,6 +150,8 @@ class WindowsDesktop:
         elements = self._elements(hwnd)
         # UIA enumeration can block and the user can switch windows meanwhile.
         self._assert_active(identity)
+        if expected is not None:
+            self._assert_active(expected)
         image_base64 = None
         capture_bounds = None
         if include_image:
@@ -171,10 +180,19 @@ class WindowsDesktop:
             image.save(out, format="PNG")
             image_base64 = base64.b64encode(out.getvalue()).decode("ascii")
         self._assert_active(identity)
+        if expected is not None:
+            self._assert_active(expected)
         return Observation(window_title=title, executable=executable, process_id=pid,
                            window_handle=hwnd, process_started_at=started_at,
                            elements=elements, image_base64=image_base64,
                            capture_bounds=capture_bounds)
+
+    def observe_scoped(self, approved: Observation,
+                       include_image: bool = False) -> Observation:
+        """Refuse changed foreground identity before acquiring any pixels."""
+        if not approved.window_handle:
+            raise DesktopUnavailable("Scoped capture requires an authorized HWND")
+        return self.observe(include_image=include_image, expected=approved)
 
     def _target(self, automation_id: str, hwnd: int):
         from pywinauto import Desktop
@@ -286,6 +304,7 @@ class WindowsDesktop:
         hwnd, pid, active_exe, _ = self._foreground()
         if not window_handle or hwnd != window_handle or active_exe != executable.casefold():
             raise DesktopUnavailable("Teach capture requires the approved foreground HWND")
+        process_created_at = self._process_started_at(pid)
 
         def allowed() -> bool:
             try:
@@ -293,6 +312,7 @@ class WindowsDesktop:
                 return (
                     current_hwnd == hwnd and current_pid == pid
                     and current_exe == executable.casefold()
+                    and self._process_started_at(pid) == process_created_at
                     and not any(el.is_password for el in self._elements(hwnd))
                 )
             except Exception:

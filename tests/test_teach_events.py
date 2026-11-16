@@ -142,3 +142,130 @@ def test_teach_queue_is_bounded_under_input_flood(tmp_path):
     recorder._drain_events()
     assert recorder._recorded_input_events == MAX_PENDING_INPUT_EVENTS
     assert len(recorder._events) == MAX_PENDING_INPUT_EVENTS
+
+
+@pytest.mark.asyncio
+async def test_teach_same_executable_foreign_window_never_writes_second_frame(tmp_path):
+    """Revocation must be per window/process instance, not executable basename."""
+    import base64
+
+    class SwitchingDesktop(EventDesktop):
+        def __init__(self):
+            super().__init__()
+            self.captures = 0
+
+        def observe(self, include_image=False):
+            observed = super().observe(include_image=include_image)
+            if include_image:
+                self.captures += 1
+                if self.captures > 1:
+                    observed.window_handle = 222
+                    observed.process_id = 82
+                    observed.image_base64 = base64.b64encode(b"FOREIGN-SECRET").decode()
+                else:
+                    observed.image_base64 = base64.b64encode(b"CONSENTED-FRAME").decode()
+            return observed
+
+    root = tmp_path / "demonstrations"
+    recorder = TeachRecorder(SwitchingDesktop(), root)
+    identifier = await recorder.start("demo.exe", seconds=5)
+    for _ in range(150):
+        if recorder.active_id is None:
+            break
+        await asyncio.sleep(0.025)
+    assert recorder.active_id is None, "Foreign HWND should terminate recording"
+    manifest = recorder.get_latest()
+    assert manifest["id"] == identifier
+    assert manifest["frames"] == 1
+    assert any(e["type"] == "capture.stopped" and e["reason"] == "window_changed"
+               for e in manifest["events"])
+    observations = [e["data"] for e in manifest["events"] if e["type"] == "observation"]
+    assert len(observations) == 1
+    assert observations[0]["frame_index"] == 0
+    assert observations[0]["frame_file"] == "frame-0000.png"
+    assert observations[0]["captured_at"]
+    assert observations[0]["window_handle"] == 123
+    assert (root / identifier / "frame-0000.png").read_bytes() == b"CONSENTED-FRAME"
+    assert not (root / identifier / "frame-0001.png").exists()
+    assert "FOREIGN-SECRET" not in json.dumps(manifest)
+
+
+@pytest.mark.asyncio
+async def test_teach_revoked_grant_stops_frames_and_rejects_future_input(tmp_path):
+    from piko.contracts import AccessProfile, Grant
+    from piko.permissions import PermissionManager
+
+    perms = PermissionManager()
+    perms.grant(Grant(executable="demo.exe", profile=AccessProfile.OBSERVE,
+                      session_id="teach"))
+    desktop = EventDesktop()
+    root = tmp_path / "demonstrations"
+    recorder = TeachRecorder(desktop, root)
+    def authorize():
+        perms.check_observe("demo.exe", "teach")
+
+    identifier = await recorder.start("demo.exe", seconds=5, authorize_capture=authorize)
+    for _ in range(120):
+        if (root / identifier / "frame-0000.png").exists():
+            break
+        await asyncio.sleep(0.025)
+    assert (root / identifier / "frame-0000.png").exists()
+    # A revoked grant must not leave the input hook authorized, either.
+    perms.revoke("demo.exe")
+    recorder._enqueue_event({
+        "type": "input.mouse_click", "x": 35, "y": 40, "button": "left",
+    })
+    for _ in range(150):
+        if recorder.active_id is None:
+            break
+        await asyncio.sleep(0.025)
+    assert recorder.active_id is None
+    manifest = recorder.get_latest()
+    assert manifest["frames"] == 1
+    assert any(e["type"] == "capture.stopped"
+               and e["reason"] == "authorization_lost"
+               for e in manifest["events"])
+    assert not any(e["type"] == "input.mouse_click" for e in manifest["events"])
+    assert len(list((root / identifier).glob("frame-*.png"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_teach_api_rechecks_grants_after_start(tmp_path):
+    from piko.contracts import AccessProfile
+
+    desktop = EventDesktop()
+    app = create_app(token="p" * 32, reasoning_model="", desktop=desktop,
+                     inference=Inference(), root=tmp_path)
+    auth = {"Authorization": "Bearer " + "p" * 32}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test",
+    ) as client:
+        permission = await client.post("/permissions", headers=auth, json={
+            "executable": "demo.exe", "profile": AccessProfile.OBSERVE,
+            "session_id": "teach",
+        })
+        assert permission.status_code == 200
+        started = await client.post(
+            "/teach/start?seconds=5", headers=auth,
+            json={"executable": "demo.exe", "session_id": "teach",
+                  "profile": AccessProfile.OBSERVE},
+        )
+        assert started.status_code == 200, started.text
+        identifier = started.json()["id"]
+        for _ in range(120):
+            if (tmp_path / "demonstrations" / identifier / "frame-0000.png").exists():
+                break
+            await asyncio.sleep(0.025)
+        assert (tmp_path / "demonstrations" / identifier / "frame-0000.png").exists()
+        revoked = await client.delete("/permissions/demo.exe", headers=auth)
+        assert revoked.status_code == 200
+        for _ in range(160):
+            response = await client.get("/teach/status", headers=auth)
+            if response.json()["recording"] is False:
+                break
+            await asyncio.sleep(0.025)
+        assert response.json()["recording"] is False
+        latest = app.state.teach.get_latest()
+        assert latest["frames"] == 1
+        assert any(e["type"] == "capture.stopped" and
+                   e["reason"] == "authorization_lost" for e in latest["events"])
