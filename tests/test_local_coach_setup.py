@@ -14,8 +14,11 @@ class ControlledGame:
         self.frames = 0
         self.typed = 0
 
-    def observe_window(self, hwnd, executable, include_image=False, expected=None):
+    def observe_window(self, hwnd, executable, include_image=False,
+                       expected=None, window_pixels_only=False):
         assert hwnd == 1234 and executable == "game.exe"
+        if include_image:
+            assert window_pixels_only, "Coach must never capture the composited desktop"
         self.frames += bool(include_image)
         return Observation(window_title="Authorized Game", process_id=42,
                            executable=executable, window_handle=hwnd,
