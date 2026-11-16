@@ -32,6 +32,7 @@ This document describes **source changes proposed in PR #6**, not a declaration 
 ## Issue #4 — End-to-end Windows and Ollama acceptance
 
 - Real Windows WinForms tests now execute through the CI runner on an interactive desktop when supported.
+- An opt-in `tests/real/test_ollama_inference.py` suite exercises actual local Ollama tags, structured reasoning and vision inference; it requires `PIKO_REAL_OLLAMA=1`, `PIKO_OLLAMA_REASONING_MODEL` and, for vision, `PIKO_OLLAMA_VISION_MODEL`. It does not download models or report simulated inference as successful.
 - **Not performed:** clean Windows 10/11 installer installation, Windows reboot/upgrade/uninstall, real reasoning and vision inference using installed Ollama models, and the complete 27-step end-to-end acceptance sequence.
 - Do not close #4 or declare stable release until the full controlled machine evidence is collected.
 
