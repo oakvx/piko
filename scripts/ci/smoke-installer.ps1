@@ -29,7 +29,7 @@ function Wait-Until([scriptblock]$Condition, [int]$Seconds = 30) {
     return $false
 }
 
-if ((Get-PikoUninstallEntry).Count -gt 0) {
+if (@(Get-PikoUninstallEntry).Count -gt 0) {
     throw 'Not a clean Windows test machine: Piko is already installed'
 }
 
@@ -40,7 +40,7 @@ $appProcess = $null
 $installedExecutable = $null
 $uninstallExecutable = $null
 try {
-    if (-not (Wait-Until { (Get-PikoUninstallEntry).Count -eq 1 })) {
+    if (-not (Wait-Until { @(Get-PikoUninstallEntry).Count -eq 1 })) {
         throw 'NSIS setup completed, but a Piko uninstall registry record is missing'
     }
     $entries = @(Get-PikoUninstallEntry)
@@ -106,7 +106,7 @@ try {
         if ($uninstallProcess.ExitCode -ne 0) {
             Write-Warning "NSIS silent uninstall exited $($uninstallProcess.ExitCode)"
         }
-        if (-not (Wait-Until { (Get-PikoUninstallEntry).Count -eq 0 } 20)) {
+        if (-not (Wait-Until { @(Get-PikoUninstallEntry).Count -eq 0 } 20)) {
             throw 'NSIS uninstall did not remove the Piko registry entry'
         }
         if ($null -ne $installedExecutable -and
