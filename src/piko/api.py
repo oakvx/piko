@@ -253,7 +253,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     @app.get("/windows", dependencies=[Depends(auth)])
     async def target_windows(executable: str):
         try:
-            if not executable or "/" in executable or "\\\\" in executable or not executable.lower().endswith(".exe"):
+            if not executable or "/" in executable or "\\" in executable or not executable.lower().endswith(".exe"):
                 raise ValueError("Use a single executable basename such as firefox.exe")
             enumerate_windows = getattr(desktop, "list_windows", None)
             if enumerate_windows is None:
