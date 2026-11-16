@@ -14,7 +14,7 @@ Piko is an experimental, local-first computer-use agent for Windows 10/11 x64. I
 - Observe → plan → user review → execute → verify control flow, with cancellable sessions.
 - Opt-in 30-second screenshot demonstration recorder, **not** yet full learning from demonstration.
 - Draft `SKILL.md` generation from reviewed plans. Drafts are never advertised as verified.
-- Token-protected, loopback-only API, and the original Piko Workfield React/Tauri interface. The Windows installer pipeline exists in source, but has not yet executed on GitHub Actions or Windows hardware.
+- Token-protected, loopback-only API, and the original Piko Workfield React/Tauri interface. The Windows installer pipeline runs on GitHub-hosted Windows workers; successful compilation is not evidence of a clean-machine installation. Consult the live GitHub Actions and Releases pages for actual installer status.
 
 ## Run on Windows
 
@@ -30,9 +30,9 @@ piko serve --model YOUR_INSTALLED_MODEL --vision-model YOUR_VISION_MODEL
 
 In manual developer mode, the command prints a one-time token for the desktop UI. In an installed release, the desktop host launches the bundled backend automatically and supplies an ephemeral token through local IPC; no manual token entry is required. The API is loopback-only.
 
-The Workfield desktop UI can be developed with `cd apps/desktop; npm install; npm run dev`. Run `npm run check` and `npm run build` to validate the TypeScript frontend. Build a Tauri executable with `npm run tauri build` after installing the Rust toolchain, Microsoft C++ build tools and WebView2. **The Windows installer is configured but has not yet been compiled or verified on real Windows hardware.**
+The Workfield desktop UI can be developed with `cd apps/desktop; npm install; npm run dev`. Run `npm run check` and `npm run build` to validate the TypeScript frontend. Build a Tauri executable with `npm run tauri build` after installing the Rust toolchain, Microsoft C++ build tools and WebView2. **The NSIS installer is built in Windows CI when quality gates pass, but installing, uninstalling and exercising it on a clean Windows computer remain separate acceptance gates.**
 
-**Build caveat:** the current authoring environment cannot resolve the npm registry, so a `package-lock.json` could not be generated and the React/Tauri frontend has **not** been compiled. CI temporarily uses `npm install`; once the lockfile is generated and committed, restore `npm ci` and dependency caching. No frontend build success is claimed. See [Workfield design](docs/architecture/WORKFIELD.md).
+**Build caveat:** the React/TypeScript frontend has passed GitHub Actions checks; however, `package-lock.json` is still missing, so JavaScript installs are not reproducible. CI temporarily uses `npm install`; generate and commit a lockfile, then use `npm ci` and dependency caching. See [Workfield design](docs/architecture/WORKFIELD.md).
 
 For a controlled Windows automation fixture, open a second PowerShell terminal and run:
 
@@ -75,4 +75,4 @@ The orchestration, state-machine logic, Skill schema, user interface and mascot 
 
 ## Windows previews
 
-GitHub Actions is configured to build an NSIS Windows x64 installer with a bundled Python sidecar on every push and PR; successful `main` commits are tagged as separate **prereleases**. Each build attaches a SHA-256 checksum and an executable. This remains **unverified** until the intended GitHub repository exists and Windows CI completes. See [Preview releases](docs/development/PREVIEW_RELEASES.md). No cloud models are installed automatically.
+GitHub Actions is configured to build an NSIS Windows x64 installer with a bundled Python sidecar on every push and PR; successful `main` commits are tagged as separate **prereleases**. Each build attaches a SHA-256 checksum and an executable. This repository is active. An installer is available only if its Windows workflow, checksum verification and prerelease publication have actually succeeded; consult [Actions](https://github.com/oakvx/piko/actions) and [Releases](https://github.com/oakvx/piko/releases). See [Preview releases](docs/development/PREVIEW_RELEASES.md). No cloud models are installed automatically.

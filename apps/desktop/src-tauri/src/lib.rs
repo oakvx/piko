@@ -57,7 +57,7 @@ pub fn run() {
                     if let Some(process) = child.take() {
                         let _ = process.kill();
                     }
-                }
+                };
             }
         })
         .invoke_handler(tauri::generate_handler![backend_config])

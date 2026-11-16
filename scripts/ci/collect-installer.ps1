@@ -19,7 +19,7 @@ try {
 $out = Join-Path $root 'distribution'
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 $short = $Commit.Substring(0, 12)
-$name = "Pico-0.1.$Build-$short-windows-x64-setup.exe"
+$name = "Piko-0.1.$Build-$short-windows-x64-setup.exe"
 Copy-Item $files[0].FullName (Join-Path $out $name) -Force
 $hash = (Get-FileHash (Join-Path $out $name) -Algorithm SHA256).Hash.ToLowerInvariant()
 [System.IO.File]::WriteAllText((Join-Path $out "$name.sha256"), "$hash  $name`n", [System.Text.UTF8Encoding]::new($false))

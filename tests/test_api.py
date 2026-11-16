@@ -54,8 +54,14 @@ async def test_token_required_and_approval(tmp_path):
         assert (await client.post(f"/sessions/{sid}/execute", headers=auth)).status_code == 409
         assert (await client.post(f"/sessions/{sid}/plan", headers=auth)).json()["state"] == "waiting_for_user"
         assert (await client.post(f"/sessions/{sid}/execute", headers=auth)).json()["accepted"]
-        await asyncio.sleep(0.05)
-        assert (await client.get(f"/sessions/{sid}", headers=auth)).json()["state"] == "completed"
+        # Do not rely on an arbitrary 50ms runner scheduling window.
+        state = None
+        for _ in range(100):
+            state = (await client.get(f"/sessions/{sid}", headers=auth)).json()["state"]
+            if state in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.02)
+        assert state == "completed"
 
 @pytest.mark.asyncio
 async def test_snapshot_requires_auth_and_scoped_grant(tmp_path):
