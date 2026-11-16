@@ -80,7 +80,7 @@ jobs:
   windows-installer:
     name: Build packaged Windows x64 installer
     runs-on: windows-latest
-    needs: [python, frontend, python-dependency-audit, windows-gui-smoke]
+    needs: [python, frontend, python-dependency-audit, rust-dependency-audit, windows-gui-smoke]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -120,18 +120,15 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  dependency-review:
-    name: Audit changed dependencies
-    if: github.event_name == 'pull_request'
+  rust-dependency-audit:
+    name: Audit pinned Rust crates
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - uses: rustsec/audit-check@v2
         with:
-          fail-on-severity: high
+          token: ${{ github.token }}
+          working-directory: apps/desktop/src-tauri
 
   python-dependency-audit:
     name: Audit pinned Windows Python packages
@@ -148,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           sed '/^-e /d' scripts/ci/backend-windows.lock > /tmp/piko-audit-requirements.txt
-          python -m pip_audit -r /tmp/piko-audit-requirements.txt --strict
+          python -m pip_audit -r /tmp/piko-audit-requirements.txt --no-deps --disable-pip --strict
 
   publish-preview:
     name: Publish verified prerelease
