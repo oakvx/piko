@@ -45,7 +45,7 @@ packaging==26.3
     #   pyinstaller-hooks-contrib
 pefile==2024.8.26
     # via pyinstaller
-pillow==12.3.0
+pillow==13.0.0
     # via piko-agent
 psutil==7.2.2
     # via piko-agent
