@@ -19,6 +19,10 @@ def test_preview_gating_and_release_files():
     assert "github.event.pull_request.number" in workflow["concurrency"]["group"]
     assert "github.event_name == 'pull_request'" in workflow["concurrency"]["cancel-in-progress"]
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
+    windows_gui_runs = "\n".join(step.get("run", "") for step in
+                                 jobs["windows-gui-smoke"]["steps"])
+    assert "python -m pytest -q tests/windows" in windows_gui_runs
+    assert (ROOT / "tests/windows/test_real_skill_cycle.py").is_file()
     assert jobs["windows-installer-smoke"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer-smoke"]["needs"] == ["windows-installer"]
     assert jobs["publish-preview"]["needs"] == ["windows-installer", "windows-installer-smoke"]
