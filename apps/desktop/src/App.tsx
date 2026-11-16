@@ -174,6 +174,7 @@ export default function App() {
   const [teachSeconds, setTeachSeconds] = useState(30);
   const [recording, setRecording] = useState(false);
   const previousTeachRecording = useRef(false);
+  const setupPrompted = useRef(false);
   const [demonstration, setDemonstration] = useState<Demonstration | null>(null);
   const [teachAnalysis, setTeachAnalysis] = useState<TeachAnalysis | null>(null);
   const [teachPlanJson, setTeachPlanJson] = useState('');
@@ -345,6 +346,10 @@ export default function App() {
       try {
         const state = await client.setup();
         if (!active) return;
+        if (!setupPrompted.current && !state.ollama_installed && state.stage === 'idle') {
+          setupPrompted.current = true;
+          setLens('system');
+        }
         setSetupState(previous => {
           if (previous?.stage !== 'ready' && state.stage === 'ready') {
             void client.models().then(result => {
