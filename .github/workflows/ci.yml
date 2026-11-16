@@ -165,7 +165,7 @@ jobs:
           $exe = @(Get-ChildItem -Path distribution -Filter '*setup.exe' -File)
           if ($exe.Count -ne 1) { throw 'Expected one downloaded installer' }
           $checksum = Get-Content -Raw "$($exe[0].FullName).sha256"
-          $expected = ($checksum -split '\\s+')[0].Trim().ToLowerInvariant()
+          $expected = ($checksum -split '\s+')[0].Trim().ToLowerInvariant()
           $actual = (Get-FileHash $exe[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($expected -ne $actual) { throw 'Downloaded installer checksum mismatch' }
       - name: Test packaged NSIS lifecycle and sidecar cleanup
