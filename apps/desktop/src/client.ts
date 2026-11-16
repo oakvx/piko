@@ -1,4 +1,4 @@
-import type { AgentEvent, Demonstration, Health, ModelInfo, Observation, Session, Skill } from './types';
+import type { AgentEvent, Demonstration, Health, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
 
 const DEFAULT_ORIGIN = 'http://127.0.0.1:8765';
 
@@ -80,6 +80,15 @@ export class PikoClient {
     });
   }
   latestTeach() { return this.request<Demonstration>('/teach/latest'); }
+  analyzeTeach(id: string) {
+    return this.request<TeachAnalysis>(`/teach/${encodeURIComponent(id)}/analysis`);
+  }
+  saveTeachDraft(id: string, slug: string, description: string, plan: Plan) {
+    return this.request(`/teach/${encodeURIComponent(id)}/draft`, {
+      method: 'POST',
+      body: JSON.stringify({ slug, description, plan, confirmed_user_corrections: true }),
+    });
+  }
   stopTeach() { return this.request<Demonstration>('/teach/stop', { method: 'POST' }); }
   deleteTeach(id: string) { return this.request(`/teach/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   saveSkill(id: string, slug: string, description: string) {
