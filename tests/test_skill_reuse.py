@@ -1,5 +1,6 @@
 """Guarded Skill reuse, history and revision regression tests."""
 import asyncio
+import base64
 import io
 import json
 import zipfile
@@ -142,3 +143,36 @@ def test_skill_rollback_is_new_revision_and_preserves_original(tmp_path):
     assert rolled["description"] == "Original description"
     assert lib.revisions("save-demo") == [1, 2]
     assert (folder / "revisions/revision-2/metadata.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_skill_archive_api_requires_auth_and_forces_draft(tmp_path):
+    lib = SkillLibrary(tmp_path / "skills")
+    lib.save_draft("saved", "Before export", "demo.exe", sample_plan())
+    app = create_app(token="x"*32, reasoning_model="", desktop=Screen(),
+                     inference=Inference(), root=tmp_path)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                 base_url="http://test") as client:
+        auth = {"Authorization": "Bearer " + "x"*32}
+        assert (await client.get("/skills/saved/export")).status_code == 401
+        exported = await client.get("/skills/saved/export", headers=auth)
+        assert exported.status_code == 200
+        assert exported.headers["content-type"] == "application/zip"
+        archive = exported.content
+        with zipfile.ZipFile(io.BytesIO(archive)) as zip_file:
+            assert set(zip_file.namelist()) == {"metadata.json", "plan.json"}
+        # Import a differently named but otherwise identical controlled archive.
+        with zipfile.ZipFile(io.BytesIO(archive)) as zip_file:
+            metadata = json.loads(zip_file.read("metadata.json"))
+            plan = zip_file.read("plan.json")
+        metadata["name"] = "imported"
+        metadata["status"] = "verified"
+        modified = io.BytesIO()
+        with zipfile.ZipFile(modified, "w") as zip_file:
+            zip_file.writestr("metadata.json", json.dumps(metadata))
+            zip_file.writestr("plan.json", plan)
+        response = await client.post("/skills/import", headers=auth,
+            json={"archive_base64": base64.b64encode(modified.getvalue()).decode()})
+        assert response.status_code == 200
+        assert response.json()["verified"] is False
+        assert len((await client.get("/skills", headers=auth)).json()) == 2
