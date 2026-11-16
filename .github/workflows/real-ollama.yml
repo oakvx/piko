@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install Piko real-test dependencies
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[windows,dev]"
       - name: Download and SHA256-verify pinned official Ollama Windows binary
         shell: pwsh
         run: |
@@ -52,9 +52,10 @@ jobs:
           for ($i = 0; $i -lt 90; $i++) {
             if ($process.HasExited) { throw "Ollama serve exited with $($process.ExitCode)" }
             try {
-              $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2
-              if ($null -ne $result.models) { $ready = $true; break }
-            } catch { Start-Sleep -Seconds 2 }
+              $response = Invoke-WebRequest -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2
+              if ($response.StatusCode -eq 200) { $ready = $true; break }
+            } catch { }
+            Start-Sleep -Seconds 2
           }
           if (-not $ready) { throw 'Ollama local API did not start within 180 seconds' }
           Write-Host 'Ollama local loopback is responding; cloud inference disabled'
