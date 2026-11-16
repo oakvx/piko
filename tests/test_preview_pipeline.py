@@ -76,9 +76,9 @@ def test_ci_version_stamping_keeps_dependency_locks_synchronized(tmp_path, monke
         "packages": {"": {"version": "0.1.0-alpha.1"}},
     }))
     (tauri / "tauri.conf.json").write_text('{"version":"0.1.0-alpha.1"}')
-    (tauri / "Cargo.toml").write_text('[package]\\nversion = "0.1.0-alpha.1"\\n')
+    (tauri / "Cargo.toml").write_text('[package]\nversion = "0.1.0-alpha.1"\n')
     (tauri / "Cargo.lock").write_text(
-        '[[package]]\\nname = "piko-desktop"\\nversion = "0.1.0-alpha.1"\\n'
+        '[[package]]\nname = "piko-desktop"\nversion = "0.1.0-alpha.1"\n'
     )
     assert module.stamp(321) == "0.1.321"
     npm = json.loads((desktop / "package-lock.json").read_text())
