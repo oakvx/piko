@@ -1,13 +1,14 @@
 """Optional REAL Ollama smoke test. No mocks, no implicit model downloads.
 
-Run only in a controlled Windows environment with installed local Ollama:
+Run only in a controlled environment with installed local Ollama:
   $env:PIKO_REAL_OLLAMA = '1'
   $env:PIKO_OLLAMA_REASONING_MODEL = '<installed structured-output model>'
   $env:PIKO_OLLAMA_VISION_MODEL = '<installed vision model>'
   python -m pytest -q tests/real/test_ollama_inference.py
 
-The test fails on malformed models or inference; absence of prerequisites is
-SKIPPED, never represented as successful real inference.
+The test fails on malformed models or inference. By default the suite is
+SKIPPED; when PIKO_REAL_OLLAMA=1, BOTH model roles are mandatory and a
+missing model fails instead of silently making the acceptance appear green.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ import time
 import pytest
 
 from piko.contracts import Observation, UIElement
-from piko.ollama import InferenceError, OllamaProvider
+from piko.ollama import OllamaProvider
 
 
 pytestmark = pytest.mark.skipif(
@@ -32,7 +33,7 @@ pytestmark = pytest.mark.skipif(
 async def test_real_local_reasoning_model_generates_validated_plan():
     reasoning = os.environ.get("PIKO_OLLAMA_REASONING_MODEL")
     assert reasoning, "Set PIKO_OLLAMA_REASONING_MODEL to an installed local model"
-    provider = OllamaProvider(reasoning_model=reasoning, timeout=120)
+    provider = OllamaProvider(reasoning_model=reasoning, timeout=300)
     try:
         installed = {model["name"] for model in await provider.models()}
         assert reasoning in installed, f"Reasoning model {reasoning} is not installed"
@@ -54,6 +55,8 @@ async def test_real_local_reasoning_model_generates_validated_plan():
         )
         elapsed_ms = (time.perf_counter() - started) * 1000
         assert plan.actions, "Model returned no actions"
+        assert any(a.kind == "ui.click" and a.automation_id == "SaveButton"
+                   for a in plan.actions), "Model did not plan the requested Save click"
         assert all(action.automation_id in {"SaveButton", "StatusLabel", None}
                    for action in plan.actions)
         assert elapsed_ms > 0
@@ -67,8 +70,7 @@ async def test_real_local_reasoning_model_generates_validated_plan():
 @pytest.mark.asyncio
 async def test_real_local_vision_model_interprets_image():
     vision = os.environ.get("PIKO_OLLAMA_VISION_MODEL")
-    if not vision:
-        pytest.skip("No real vision model selected; set PIKO_OLLAMA_VISION_MODEL")
+    assert vision, "Set PIKO_OLLAMA_VISION_MODEL to an installed local vision model"
     reasoning = os.environ.get("PIKO_OLLAMA_REASONING_MODEL") or vision
     from PIL import Image, ImageDraw
 
@@ -85,7 +87,7 @@ async def test_real_local_vision_model_interprets_image():
         elements=[],
         image_base64=base64.b64encode(buffer.getvalue()).decode("ascii"),
     )
-    provider = OllamaProvider(reasoning_model=reasoning, vision_model=vision, timeout=120)
+    provider = OllamaProvider(reasoning_model=reasoning, vision_model=vision, timeout=300)
     try:
         installed = {model["name"] for model in await provider.models()}
         assert vision in installed, f"Vision model {vision} is not installed"
@@ -95,6 +97,10 @@ async def test_real_local_vision_model_interprets_image():
         summary = await provider.interpret(observation)
         elapsed_ms = (time.perf_counter() - started) * 1000
         assert isinstance(summary, str) and summary.strip()
+        assert "save" in summary.casefold(), "Vision model did not identify SAVE control"
+        assert any(word in summary.casefold() for word in ("waiting", "status")), (
+            "Vision model did not identify status text"
+        )
         assert provider.last_latency_ms is not None
         print(f"Real vision inference: {vision}, {elapsed_ms:.0f} ms")
     finally:
