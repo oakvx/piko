@@ -52,6 +52,8 @@ class Agent:
 
     def create(self, objective: str, app_executable: str, *,
                target_window_handle: int | None = None,
+               target_process_id: int | None = None,
+               target_process_started_at: float | None = None,
                allow_activate: bool = False) -> Session:
         if not objective.strip() or not app_executable.lower().endswith(".exe"):
             raise ValueError("Objective and .exe application name are required")
@@ -61,6 +63,8 @@ class Agent:
             raise ValueError("Foreground activation requires a selected application window")
         session = Session(objective=objective, app_executable=app_executable.casefold(),
                           target_window_handle=target_window_handle,
+                          target_process_id=target_process_id,
+                          target_process_started_at=target_process_started_at,
                           allow_activate=allow_activate)
         self.sessions[session.id] = session
         self.memory.save(session)
@@ -74,9 +78,15 @@ class Agent:
         self.permissions.check_observe(session.app_executable, session.id)
         observe_window = getattr(self.desktop, "observe_window", None)
         if session.target_window_handle is not None and observe_window is not None:
+            kwargs = {"include_image": include_image}
+            if session.target_process_id is not None and session.target_process_started_at is not None:
+                kwargs["expected"] = Observation(window_title="",
+                    executable=session.app_executable,
+                    process_id=session.target_process_id,
+                    process_started_at=session.target_process_started_at,
+                    window_handle=session.target_window_handle, elements=[])
             observation = observe_window(session.target_window_handle,
-                                         session.app_executable,
-                                         include_image=include_image)
+                                         session.app_executable, **kwargs)
         else:
             observation = self.desktop.observe(include_image=include_image)
         if observation.executable.casefold() != session.app_executable:
