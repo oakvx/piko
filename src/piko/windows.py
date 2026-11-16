@@ -286,6 +286,7 @@ class WindowsDesktop:
         hwnd, pid, active_exe, _ = self._foreground()
         if not window_handle or hwnd != window_handle or active_exe != executable.casefold():
             raise DesktopUnavailable("Teach capture requires the approved foreground HWND")
+        process_created_at = self._process_started_at(pid)
 
         def allowed() -> bool:
             try:
@@ -293,6 +294,7 @@ class WindowsDesktop:
                 return (
                     current_hwnd == hwnd and current_pid == pid
                     and current_exe == executable.casefold()
+                    and self._process_started_at(pid) == process_created_at
                     and not any(el.is_password for el in self._elements(hwnd))
                 )
             except Exception:
