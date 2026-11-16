@@ -120,6 +120,18 @@ class SkillLibrary:
             staged.replace(target)
         return metadata
 
+    def revisions(self, slug: str) -> list[int]:
+        folder = self._folder(slug)
+        self.load_plan(slug)
+        archive = folder / "revisions"
+        if not archive.is_dir() or archive.is_symlink():
+            return []
+        return sorted(
+            int(item.name.split("-", 1)[1]) for item in archive.iterdir()
+            if item.is_dir() and not item.is_symlink()
+            and re.fullmatch(r"revision-[0-9]+", item.name)
+        )
+
     def rollback_draft(self, slug: str, revision: int) -> dict:
         """Create a *new* draft revision from a safely archived old draft."""
         folder = self._folder(slug)
