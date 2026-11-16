@@ -172,7 +172,7 @@ class SkillLibrary:
         executable = metadata.get("executable")
         if not isinstance(slug, str) or not isinstance(executable, str):
             raise SkillError("Missing Skill identity")
-        if not re.fullmatch(r"[a-zA-Z0-9_.-]+\\.exe", executable, re.I):
+        if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.exe", executable, re.I):
             raise SkillError("Imported executable must be a basename")
         return self.save_draft(slug, str(metadata.get("description", "Imported draft"))[:500],
                                executable.casefold(), plan)
