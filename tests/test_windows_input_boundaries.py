@@ -363,3 +363,49 @@ def test_hung_uia_property_lookup_cannot_type_after_emergency_cancel():
     with pytest.raises(DesktopUnavailable, match="Emergency stop"):
         bridge.execute_observed(action, prior)
     assert typed == []
+
+
+def test_owned_keyboard_releases_previous_keys_after_native_injection_failure():
+    sent = []
+
+    def inject(key, down):
+        if key == 0x41 and down:
+            raise OSError("Simulated native injection failure")
+        sent.append((key, down))
+
+    guard = OwnedKeyboard(inject, lambda _key: False)
+    guard.begin_session()
+    with pytest.raises(OSError, match="injection failure"):
+        guard.chord((0x11, 0x41), lambda: None)
+    assert sent == [(0x11, True), (0x11, False)]
+
+
+def test_native_dispatch_refuses_password_fields_before_target_resolution():
+    bridge = object.__new__(WindowsDesktop)
+    bridge._native_dispatch_lock = threading.Lock()
+    bridge._foreground = lambda: (101, 24, "demo.exe", "Fixture")
+    bridge._target = lambda *_args: pytest.fail("Password window must never resolve inputs")
+    prior = observation()
+    prior.elements.append(UIElement(
+        automation_id="PasswordInput", control_type="Edit", is_password=True,
+    ))
+    with pytest.raises(DesktopUnavailable, match="password"):
+        bridge.execute_observed(click(), prior)
+
+
+@pytest.mark.parametrize("reason", [
+    "UIA target not uniquely resolved (2 matches)",
+    "UIA target not uniquely resolved (0 matches)",
+    "UIA target is a password control",
+])
+def test_native_dispatch_refuses_inaccessible_ambiguous_or_secret_target(reason):
+    bridge = object.__new__(WindowsDesktop)
+    bridge._native_dispatch_lock = threading.Lock()
+    bridge._foreground = lambda: (101, 24, "demo.exe", "Fixture")
+
+    def deny(*_args):
+        raise DesktopUnavailable(reason)
+
+    bridge._target = deny
+    with pytest.raises(DesktopUnavailable, match="UIA target"):
+        bridge.execute_observed(click(), observation())
