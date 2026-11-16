@@ -1,0 +1,66 @@
+//! Tauri shell for the original Workfield UI.
+//! The Windows installer ships a Python sidecar, not a cloud backend.
+use std::sync::Mutex;
+use tauri::Manager;
+use tauri_plugin_shell::{process::CommandChild, ShellExt};
+
+#[derive(Clone, serde::Serialize)]
+struct BackendConfig {
+    token: String,
+    port: u16,
+}
+
+#[derive(Default)]
+struct BackendState {
+    config: Option<BackendConfig>,
+    child: Mutex<Option<CommandChild>>,
+}
+
+#[tauri::command]
+fn backend_config(state: tauri::State<'_, BackendState>) -> Option<BackendConfig> {
+    state.config.clone()
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            let mut backend = BackendState::default();
+            // During development, `piko serve` may be launched independently.
+            // Release builds launch the packaged sidecar automatically.
+            #[cfg(not(debug_assertions))]
+            {
+                let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+                let port = listener.local_addr()?.port();
+                drop(listener);
+                let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+                let (mut events, child) = app
+                    .shell()
+                    .sidecar("piko-agent")?
+                    .args(["serve", "--port", &port.to_string()])
+                    .env("PIKO_CONTROL_TOKEN", &token)
+                    .spawn()?;
+                // Drain stderr/stdout without forwarding sensitive output to the UI.
+                tauri::async_runtime::spawn(async move {
+                    while events.recv().await.is_some() {}
+                });
+                backend.config = Some(BackendConfig { token, port });
+                *backend.child.lock().expect("backend process lock poisoned") = Some(child);
+            }
+            app.manage(backend);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let state = window.state::<BackendState>();
+                if let Ok(mut child) = state.child.lock() {
+                    if let Some(process) = child.take() {
+                        let _ = process.kill();
+                    }
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![backend_config])
+        .run(tauri::generate_context!())
+        .expect("Piko desktop runtime failed");
+}

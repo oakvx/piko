@@ -1,0 +1,20 @@
+[package]
+name = "piko-desktop"
+version = "0.1.0-alpha.1"
+description = "Piko local-first desktop interface"
+authors = ["Piko contributors"]
+edition = "2021"
+
+[lib]
+name = "piko_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+tauri-plugin-shell = "2"
+uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
