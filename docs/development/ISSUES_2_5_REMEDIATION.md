@@ -37,6 +37,7 @@ This document tracks **merged remediation from PR #6 and follow-up release harde
 ## Issue #4 — End-to-end Windows and Ollama acceptance
 
 - Real Windows WinForms tests now execute through the CI runner on an interactive desktop when supported.
+- A second real WinForms test exercises the full Agent session state machine with a deterministic (non-Ollama) planner, fresh grant and plan review, native UIA input and independently observed outcomes. It then persists a parameterized draft Skill, recreates the Agent and permission manager, refuses an ungranted replay, applies a new user value with fresh consent and verifies the final UI after execution. Passing this test is native GUI/Skill evidence, not proof of actual model inference.
 - An opt-in `tests/real/test_ollama_inference.py` suite exercises actual local Ollama tags, structured reasoning and vision inference; it requires `PIKO_REAL_OLLAMA=1`, `PIKO_OLLAMA_REASONING_MODEL` and, for vision, `PIKO_OLLAMA_VISION_MODEL`. It does not download models or report simulated inference as successful.
 - **Not performed:** clean Windows 10/11 installer installation, Windows reboot/upgrade/uninstall, real reasoning and vision inference using installed Ollama models, and the complete 27-step end-to-end acceptance sequence.
 - Do not close #4 or declare stable release until the full controlled machine evidence is collected.
