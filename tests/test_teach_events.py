@@ -266,6 +266,9 @@ async def test_teach_api_rechecks_grants_after_start(tmp_path):
             await asyncio.sleep(0.025)
         assert response.json()["recording"] is False
         latest = app.state.teach.get_latest()
+        summary = await client.get("/teach/latest", headers=auth)
+        assert summary.status_code == 200
+        assert summary.json()["stopped_reason"] == "authorization_lost"
         assert latest["frames"] == 1
         assert any(e["type"] == "capture.stopped" and
                    e["reason"] == "authorization_lost" for e in latest["events"])
