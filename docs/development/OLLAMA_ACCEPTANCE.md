@@ -1,9 +1,10 @@
 # Issue #4 — real Ollama evidence, Windows-hosted runner
 
-**This is an opt-in integration test, not a stable-release certification.** The separate workflow
-[Real Ollama inference (Windows, opt-in)](../../.github/workflows/real-ollama.yml)
-does **not** execute on every push. Start it deliberately from GitHub Actions
-using **Run workflow** on a branch containing the workflow (usually `main`).
+**This is a real integration test, not a stable-release certification.** The separate workflow
+[Real Ollama inference (Windows)](../../.github/workflows/real-ollama.yml)
+runs on `main` pushes that modify either the workflow or its real inference test;
+it can also be started manually via GitHub Actions → **Run workflow**.
+Unrelated commits do not repeatedly download gigabytes of models.
 
 ## What it verifies
 
