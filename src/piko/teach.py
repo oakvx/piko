@@ -22,6 +22,11 @@ class TeachError(RuntimeError):
     pass
 
 
+# Avoid unbounded memory growth from a noisy OS hook during a 300-second demo.
+MAX_PENDING_INPUT_EVENTS = 1024
+MAX_RECORDED_INPUT_EVENTS = 4096
+
+
 class TeachRecorder:
     def __init__(self, desktop: Desktop, root: Path) -> None:
         self.desktop = desktop
@@ -32,7 +37,9 @@ class TeachRecorder:
         self._task: asyncio.Task | None = None
         self._events: list[dict] = []
         self._app = ""
-        self._event_queue: queue.SimpleQueue[dict] = queue.SimpleQueue()
+        self._event_queue: queue.Queue[dict] = queue.Queue(maxsize=MAX_PENDING_INPUT_EVENTS)
+        self._recorded_input_events = 0
+        self._dropped_input_events = 0
         self._listener_stop = None
         self._event_capture_available = False
 
@@ -56,7 +63,9 @@ class TeachRecorder:
         folder.mkdir(mode=0o700)
         start_events = getattr(self.desktop, "start_teach_events", None)
         self._event_capture_available = start_events is not None
-        self._event_queue = queue.SimpleQueue()
+        self._event_queue = queue.Queue(maxsize=MAX_PENDING_INPUT_EVENTS)
+        self._recorded_input_events = 0
+        self._dropped_input_events = 0
         if start_events is not None:
             try:
                 self._listener_stop = start_events(
@@ -69,12 +78,58 @@ class TeachRecorder:
         return self.active_id
 
     def _enqueue_event(self, event: dict) -> None:
-        event["timestamp"] = datetime.now(timezone.utc).isoformat()
-        self._event_queue.put(event)
+        """Accept only structural event metadata; drop injected free-form fields.
+
+        Never persist a callback-provided text/clipboard/password value, even
+        if the adapter erroneously passes one. The native Windows hook already
+        scopes events to the approved HWND; this is a second privacy boundary.
+        """
+        if not isinstance(event, dict) or self.active_id is None:
+            return
+        kind = event.get("type")
+        try:
+            if kind == "input.special_key":
+                key = event["key"]
+                if key not in {"tab", "enter", "escape", "backspace"}:
+                    return
+                safe = {"type": kind, "key": key}
+            elif kind in {"input.mouse_click", "input.mouse_scroll"}:
+                x, y = event["x"], event["y"]
+                if (type(x) is not int or type(y) is not int
+                        or abs(x) > 1_000_000 or abs(y) > 1_000_000):
+                    return
+                safe = {"type": kind, "x": x, "y": y}
+                if kind == "input.mouse_click":
+                    button = event["button"]
+                    if button not in {"left", "right", "middle"}:
+                        return
+                    safe["button"] = button
+                else:
+                    dx, dy = event["dx"], event["dy"]
+                    if type(dx) is not int or type(dy) is not int:
+                        return
+                    safe.update({"dx": dx, "dy": dy})
+            else:
+                return
+        except (KeyError, TypeError, ValueError):
+            return
+        safe["timestamp"] = datetime.now(timezone.utc).isoformat()
+        try:
+            self._event_queue.put_nowait(safe)
+        except queue.Full:
+            self._dropped_input_events += 1
 
     def _drain_events(self) -> None:
-        while not self._event_queue.empty():
-            self._events.append(self._event_queue.get_nowait())
+        while True:
+            try:
+                event = self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+            if self._recorded_input_events >= MAX_RECORDED_INPUT_EVENTS:
+                self._dropped_input_events += 1
+                continue
+            self._recorded_input_events += 1
+            self._events.append(event)
 
     async def _record(self, identifier: str, seconds: int) -> None:
         # Mouse/special-key events are strictly scoped by the Windows bridge;
@@ -98,11 +153,13 @@ class TeachRecorder:
                         record["window_title"] = ""
                         for element in record["elements"]:
                             element["value"] = None
-                            if element["control_type"] in {"Edit", "Text", "Document"}:
-                                element["name"] = ""
-                                # Fallback UIA ids can contain user-visible text.
-                                if element["automation_id"].startswith("name::"):
-                                    element["automation_id"] = ""
+                            # ANY control name can be user content, including
+                            # buttons and labels ("Delete customer Alice").
+                            element["name"] = ""
+                            # Fallback IDs embed that same text, regardless of
+                            # control type. Only stable explicit IDs survive.
+                            if element["automation_id"].startswith("name::"):
+                                element["automation_id"] = ""
                         self._events.append({"type": "observation", "data": record})
                         frames += 1
                 except Exception as exc:
@@ -120,6 +177,7 @@ class TeachRecorder:
             self._events.sort(key=lambda e: e.get("timestamp") or e.get("data", {}).get("timestamp") or "")
             (folder / "manifest.json").write_text(json.dumps({
                 "id": identifier, "app": self._app, "frames": frames,
+                "dropped_input_events": self._dropped_input_events,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "limitations": (
                     ["Input-event recorder unavailable on this desktop adapter"]
