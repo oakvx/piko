@@ -194,6 +194,69 @@ class WindowsDesktop:
         else:
             raise DesktopUnavailable(f"Unsupported action {action.kind}")
 
+    def start_teach_events(self, executable: str, window_handle: int,
+                           callback) -> callable:
+        """Listen only during opt-in recording; never store typed characters.
+
+        Pynput hooks receive OS events, but forward only structural events while
+        the *same* authorized HWND/PID is foreground and no password UIA element
+        is present. Credentials and key contents are never forwarded.
+        """
+        from pynput import keyboard, mouse
+
+        hwnd, pid, active_exe, _ = self._foreground()
+        if not window_handle or hwnd != window_handle or active_exe != executable.casefold():
+            raise DesktopUnavailable("Teach capture requires the approved foreground HWND")
+
+        def allowed() -> bool:
+            try:
+                current_hwnd, current_pid, current_exe, _ = self._foreground()
+                return (
+                    current_hwnd == hwnd and current_pid == pid
+                    and current_exe == executable.casefold()
+                    and not any(el.is_password for el in self._elements(hwnd))
+                )
+            except Exception:
+                return False
+
+        def on_click(x, y, button, pressed):
+            if pressed and allowed():
+                callback({"type": "input.mouse_click", "x": int(x), "y": int(y),
+                          "button": getattr(button, "name", "unknown")})
+
+        def on_scroll(x, y, dx, dy):
+            if allowed():
+                callback({"type": "input.mouse_scroll", "x": int(x), "y": int(y),
+                          "dx": int(dx), "dy": int(dy)})
+
+        allowed_keys = {
+            keyboard.Key.tab: "tab",
+            keyboard.Key.enter: "enter",
+            keyboard.Key.esc: "escape",
+            keyboard.Key.backspace: "backspace",
+        }
+
+        def on_press(key):
+            # No alphanumeric keypresses, password values or clipboard data.
+            label = allowed_keys.get(key)
+            if label is not None and allowed():
+                callback({"type": "input.special_key", "key": label})
+
+        mouse_listener = mouse.Listener(on_click=on_click, on_scroll=on_scroll)
+        keyboard_listener = keyboard.Listener(on_press=on_press)
+        mouse_listener.start()
+        try:
+            keyboard_listener.start()
+        except Exception:
+            mouse_listener.stop()
+            raise
+
+        def stop() -> None:
+            mouse_listener.stop()
+            keyboard_listener.stop()
+
+        return stop
+
     def emergency_release(self) -> None:
         # Never release inputs belonging to another program or the human user.
         self._keyboard.release_all()
