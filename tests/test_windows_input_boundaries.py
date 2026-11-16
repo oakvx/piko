@@ -1,6 +1,8 @@
 """Negative authorization and input ownership tests runnable off Windows."""
 import threading
 
+import threading
+
 import pytest
 
 from piko.contracts import Action, Expectation, Observation, UIElement
@@ -192,3 +194,39 @@ def test_observation_refuses_process_reuse_during_uia_enumeration():
     bridge._elements = enumerate_uia
     with pytest.raises(DesktopUnavailable, match="PID was reused"):
         bridge.observe(include_image=False)
+
+
+def test_emergency_stop_during_blocked_uia_lookup_prevents_later_invoke():
+    """A cancelled COM lookup may return; it must not then click the UI."""
+    bridge = object.__new__(WindowsDesktop)
+    bridge._input_stopped = threading.Event()
+    bridge._foreground = lambda: (101, 24, "demo.exe", "Fixture")
+    bridge._process_started_at = lambda _pid: 100.0
+    class Keyboard:
+        def release_all(self):
+            pass
+    bridge._keyboard = Keyboard()
+    invoked = []
+    class Button:
+        def is_enabled(self):
+            return True
+        def invoke(self):
+            invoked.append("unsafe")
+    def lookup(_automation_id, _hwnd):
+        bridge.emergency_release()
+        return Button()
+    bridge._target = lookup
+    before = observation()
+    before.process_started_at = 100.0
+    with pytest.raises(DesktopUnavailable, match="Emergency stop"):
+        bridge.execute_observed(click(), before)
+    assert invoked == []
+
+
+def test_emergency_stop_refuses_new_uia_actions_until_begin_session():
+    bridge = object.__new__(WindowsDesktop)
+    bridge._input_stopped = threading.Event()
+    bridge._input_stopped.set()
+    bridge._foreground = lambda: pytest.fail("Cancelled action must not inspect desktop")
+    with pytest.raises(DesktopUnavailable, match="Emergency stop"):
+        bridge.execute_observed(click(), observation())
