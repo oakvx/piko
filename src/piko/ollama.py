@@ -4,12 +4,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from piko.contracts import Observation, Plan
+from piko.contracts import Expectation, Observation, Plan, StrictModel
 
 
 class InferenceError(RuntimeError):
@@ -27,6 +27,54 @@ Do not include sensitive data, passwords, or tokens.
 If the task cannot be safely expressed using available actions, report an error instead.
 Respond with a JSON object conforming exactly to the provided JSON Schema.
 """
+
+
+# Use a MODEL-FACING schema with action-specific required fields. The
+# executable Action schema has optional fields plus cross-field validators;
+# those validators are NOT representable in its JSON schema, which caused real
+# Qwen 1.5B and 3B model output to omit UIA selectors despite "format" guidance.
+# Pydantic's discriminated oneOf enforces the correct shape during generation.
+# The resulting plan is re-validated against the separate executable contract.
+class GeneratedClick(StrictModel):
+    kind: Literal["ui.click"]
+    automation_id: str = Field(min_length=1, max_length=128)
+    expected: Expectation
+    timeout_seconds: float = Field(default=5, ge=0.1, le=15)
+
+
+class GeneratedSetText(StrictModel):
+    kind: Literal["ui.set_text"]
+    automation_id: str = Field(min_length=1, max_length=128)
+    text: str = Field(max_length=2000)
+    expected: Expectation
+    timeout_seconds: float = Field(default=5, ge=0.1, le=15)
+
+
+class GeneratedHotkey(StrictModel):
+    kind: Literal["keyboard.hotkey"]
+    keys: list[str] = Field(min_length=1, max_length=3)
+    expected: Expectation
+    automation_id: str | None = None
+    timeout_seconds: float = Field(default=5, ge=0.1, le=15)
+
+
+class GeneratedWait(StrictModel):
+    kind: Literal["wait.condition"]
+    expected: Expectation
+    automation_id: str | None = None
+    timeout_seconds: float = Field(default=5, ge=0.1, le=15)
+
+
+GeneratedAction = Annotated[
+    GeneratedClick | GeneratedSetText | GeneratedHotkey | GeneratedWait,
+    Field(discriminator="kind"),
+]
+
+
+class GeneratedPlan(StrictModel):
+    objective: str = Field(min_length=1, max_length=500)
+    explanation: str = Field(min_length=1, max_length=2000)
+    actions: list[GeneratedAction] = Field(min_length=1, max_length=12)
 
 
 class OllamaProvider:
@@ -144,13 +192,22 @@ class OllamaProvider:
                 "action with the final status expectation. Return JSON only. "
                 "Observed context: " + json.dumps(context)
             )},
-        ], Plan)
-        assert isinstance(result, Plan)
+        ], GeneratedPlan)
+        assert isinstance(result, GeneratedPlan)
+        # GeneratedPlan prevents missing UI selectors at the JSON-schema layer.
+        # Contract revalidation is authoritative; never execute raw model output.
+        try:
+            result = Plan.model_validate(result.model_dump())
+        except ValidationError as exc:
+            categories = ", ".join(sorted({e["type"] for e in exc.errors()}))
+            raise InferenceError(f"Generated plan violated executable contract ({categories})") from None
         # Restrict selectors to observed UI IDs; dynamic UI needs re-planning rather than guessing.
         known = {el.automation_id for el in observation.elements if not el.is_password}
         for action in result.actions:
             if action.automation_id and action.automation_id not in known:
-                raise InferenceError(f"Planner invented UI selector: {action.automation_id}")
+                raise InferenceError("Planner invented a UI selector")
+            if action.expected.automation_id not in known:
+                raise InferenceError("Planner invented a verification selector")
         return result
 
 
