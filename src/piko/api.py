@@ -45,6 +45,8 @@ class CreateSession(BaseModel):
     objective: str = Field(min_length=1, max_length=500)
     executable: str
     target_window_handle: int | None = Field(default=None, ge=1)
+    target_process_id: int | None = Field(default=None, ge=1)
+    target_process_started_at: float | None = Field(default=None, ge=0)
     allow_activate: bool = False
 
 
@@ -265,6 +267,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         try:
             return agent.create(request.objective, request.executable,
                                 target_window_handle=request.target_window_handle,
+                                target_process_id=request.target_process_id,
+                                target_process_started_at=request.target_process_started_at,
                                 allow_activate=request.allow_activate)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
