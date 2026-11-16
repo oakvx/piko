@@ -15,9 +15,9 @@
         "title": "Piko \u00b7 Workfield",
         "width": 1380,
         "height": 850,
-        "minWidth": 930,
-        "minHeight": 630,
-        "backgroundColor": "#f5f3ef"
+        "minWidth": 390,
+        "minHeight": 280,
+        "backgroundColor": "#09080e"
       }
     ],
     "security": {
