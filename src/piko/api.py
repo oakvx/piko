@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from piko.contracts import AccessProfile, Grant, Plan, SessionState
+from piko.coach import LocalScreenCoach
 from piko.memory import LocalMemory
 from piko.ollama import OllamaProvider
 from piko.orchestrator import Agent
@@ -24,6 +25,14 @@ from piko.skills import SkillLibrary
 from piko.setup import SetupCoordinator
 from piko.teach import TeachRecorder
 from piko.windows import WindowsDesktop
+
+
+class CoachStartRequest(BaseModel):
+    executable: str = Field(min_length=4, max_length=100)
+    window_handle: int = Field(gt=0)
+    seconds: int = Field(default=1800, ge=30, le=3600)
+    interval_seconds: float = Field(default=4.0, ge=3, le=30)
+    consent: bool = False
 
 
 class SetupInstallRequest(BaseModel):
@@ -93,6 +102,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
                   vision=inference.interpret if vision_model else None)
     setup = SetupCoordinator(inference, lambda vision: setattr(
         agent, "vision", inference.interpret if vision else None))
+    coach = LocalScreenCoach(desktop, inference)
     skills = SkillLibrary((root or data_root()) / "skills")
     teach = TeachRecorder(desktop, (root or data_root()) / "demonstrations")
     running: dict[str, asyncio.Task] = {}
@@ -130,6 +140,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     async def lifespan(_app: FastAPI):
         yield
         agent.emergency_stop()
+        await coach.stop()
         if teach.active_id is not None:
             await teach.stop()
         await asyncio.gather(*running.values(), return_exceptions=True)
@@ -164,6 +175,29 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
                     "vision": getattr(inference, "vision_model", None)}
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/coach", dependencies=[Depends(auth)])
+    async def coach_status():
+        return coach.status()
+
+    @app.post("/coach/start", dependencies=[Depends(auth)])
+    async def coach_start(request: CoachStartRequest):
+        if not request.consent:
+            raise HTTPException(status_code=403, detail="Explicit local capture consent required")
+        if any(not task.done() for task in running.values()):
+            raise HTTPException(status_code=409, detail="Stop desktop automation before visual coaching")
+        try:
+            await coach.start(request.executable, request.window_handle,
+                              seconds=request.seconds,
+                              interval_seconds=request.interval_seconds)
+            return coach.status()
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/coach/stop", dependencies=[Depends(auth)])
+    async def coach_stop():
+        await coach.stop()
+        return coach.status()
 
     @app.get("/setup", dependencies=[Depends(auth)])
     async def setup_status():
