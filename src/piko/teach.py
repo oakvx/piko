@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from piko.contracts import Observation
 from piko.platforms import Desktop
+from piko.windows import DesktopUnavailable
 
 
 class TeachError(RuntimeError):
@@ -229,6 +230,16 @@ class TeachRecorder:
                     # trying to capture an application without a valid grant.
                     self._events.append({
                         "type": "capture.stopped", "reason": "authorization_lost",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                    self._stop.set()
+                    break
+                except DesktopUnavailable:
+                    # observe_scoped denies an unauthorized foreground BEFORE
+                    # screenshot acquisition. Never retry a now-invalidated
+                    # demonstration when the user later switches back.
+                    self._events.append({
+                        "type": "capture.stopped", "reason": "native_scope_denied",
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                     self._stop.set()
