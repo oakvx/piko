@@ -55,7 +55,7 @@ jobs:
         shell: pwsh
         env:
           PIKO_GUI_SMOKE: '1'
-        run: python -m pytest -q tests/windows/test_real_gui.py
+        run: python -m pytest -q tests/windows
 
   frontend:
     name: TypeScript and Vite
