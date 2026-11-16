@@ -67,10 +67,10 @@ class LocalScreenCoach:
                     current = await asyncio.to_thread(
                         self.desktop.observe_window,
                         self._approved.window_handle, self._approved.executable,
-                        True, self._approved,
+                        True, self._approved, True,
                     )
                     if not current.image_base64:
-                        self._state["stage"] = "waiting-for-game"
+                        self._state["stage"] = "capture-unavailable"
                     else:
                         self._state["stage"] = "analyzing-locally"
                         # Local inference only. Do not write pixels or model
