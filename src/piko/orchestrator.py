@@ -111,7 +111,7 @@ class Agent:
             for action in plan.actions:
                 self.permissions.check(session.app_executable, session.id, action)
                 if action.automation_id and action.automation_id not in known:
-                    raise RuntimeError(f"Skill target unavailable: {action.automation_id}")
+                    raise RuntimeError("Saved Skill target unavailable in the current foreground application")
             session = self._state(session, SessionState.PLANNING)
             session = session.model_copy(update={"plan": plan})
             self.sessions[session.id] = session
