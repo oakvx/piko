@@ -16,12 +16,16 @@ Unrelated commits do not repeatedly download gigabytes of models.
 - Calls Piko's real `OllamaProvider` against the actual Ollama server. The
   model must produce a schema-valid plan that clicks the observed Save button;
   image inference must identify the visible Save control and status text.
+- Launches a real controlled WinForms window, authorizes the foreground,
+  lets the actual model plan a single click, requires a reviewed plan,
+  executes it through the native Agent/UIA boundary, and independently checks
+  the resulting `StatusLabel`. Planning alone cannot change the interface.
 - Fails if either model is missing, Ollama is unavailable, inference is invalid,
-  or either test fails. It does **not** treat skipped vision tests as PASS.
+  or any of the three tests fail. It does **not** treat skipped inference tests as PASS.
 - Attaches a JUnit test report and sanitized runner/model metadata, even when
   a preceding step fails. An absent JUnit report is **not** successful inference.
 
-The test may take substantial time and downloads multiple gigabytes. It uses
+The three real tests may take substantial time and download multiple gigabytes. It uses
 GitHub-hosted **Windows Server**, not clean Windows 10/11 desktop machines.
 Results must be classified **`real Ollama / hosted Windows`** and not
 misreported as **`Windows 10`** or **`Windows 11`** acceptance.
