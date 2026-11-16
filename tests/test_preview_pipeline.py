@@ -16,8 +16,8 @@ def test_preview_gating_and_release_files():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     jobs = workflow["jobs"]
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
-    assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit"]
-    assert "dependency-review" in jobs
+    assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke"]
+    assert "rust-dependency-audit" in jobs
     assert "npm ci" in "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
     assert "cargo metadata --locked" in "\n".join(
         step.get("run", "") for step in jobs["windows-installer"]["steps"])
