@@ -8,6 +8,8 @@ on:
     branches: ['main']
     paths:
       - '.github/workflows/real-ollama.yml'
+      - 'src/piko/ollama.py'
+      - 'tests/test_ollama_schema_recovery.py'
       - 'tests/real/test_ollama_inference.py'
       - 'tests/real/test_ollama_windows_agent.py'
   workflow_dispatch:
