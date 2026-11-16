@@ -25,7 +25,15 @@ def test_preview_gating_and_release_files():
     assert (ROOT / "tests/windows/test_real_skill_cycle.py").is_file()
     assert jobs["windows-installer-smoke"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer-smoke"]["needs"] == ["windows-installer"]
-    assert jobs["publish-preview"]["needs"] == ["windows-installer", "windows-installer-smoke"]
+    assert jobs["publish-preview"]["needs"] == ["windows-installer", "windows-installer-smoke", "sbom"]
+    assert jobs["sbom"]["runs-on"] == "ubuntu-latest"
+    inventory_cmd = "\n".join(step.get("run", "") for step in jobs["sbom"]["steps"])
+    assert "generate_sbom.py" in inventory_cmd
+    assert "--check" in inventory_cmd
+    assert any(step.get("with", {}).get("name") == "piko-sbom-${{ github.sha }}"
+               for step in jobs["sbom"]["steps"])
+    assert any(step.get("with", {}).get("name") == "piko-sbom-${{ github.sha }}"
+               for step in jobs["publish-preview"]["steps"])
     installer_smoke_steps = "\n".join(
         step.get("run", "") for step in jobs["windows-installer-smoke"]["steps"]
     )
@@ -47,6 +55,8 @@ def test_preview_gating_and_release_files():
     assert jobs["publish-preview"]["permissions"]["contents"] == "write"
     script = "\n".join(step.get("run", "") for step in jobs["publish-preview"]["steps"])
     assert "sha256sum --check" in script
+    assert 'sboms=(distribution/*.cdx.json)' in script
+    assert 'sha' in script and 'sboms[0]' in script
     assert "--prerelease" in script
     assert "--target \"$SHA\"" in script
     assert "--clobber" in script
