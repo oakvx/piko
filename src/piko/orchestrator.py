@@ -59,6 +59,9 @@ class Agent:
         return session
 
     def _observation(self, session: Session, include_image: bool = False) -> Observation:
+        # Check consent before screenshot capture, as well as after process
+        # identity has been observed. Unauthorized captures must not happen.
+        self.permissions.check_observe(session.app_executable, session.id)
         observation = self.desktop.observe(include_image=include_image)
         if observation.executable.casefold() != session.app_executable:
             raise RuntimeError(f"Application changed: expected {session.app_executable}, got {observation.executable}")
@@ -100,6 +103,9 @@ class Agent:
         if self._active_lock.locked():
             raise RuntimeError("Another agent session owns desktop input")
         async with self._active_lock:
+            begin_session = getattr(self.desktop, "begin_session", None)
+            if begin_session is not None:
+                begin_session()
             session = self._state(session, SessionState.EXECUTING)
             try:
                 for index in range(session.next_action, len(session.plan.actions)):
@@ -120,7 +126,14 @@ class Agent:
                     # Cancelling wait_for(to_thread(...)) does NOT stop the native
                     # Windows operation. Retain input ownership until the worker
                     # actually exits, including on timeout or coroutine cancellation.
-                    dispatch = asyncio.create_task(asyncio.to_thread(self.desktop.execute, action))
+                    guarded_executor = getattr(self.desktop, "execute_observed", None)
+                    if guarded_executor is not None:
+                        dispatch = asyncio.create_task(
+                            asyncio.to_thread(guarded_executor, action, before))
+                    else:
+                        # Portable test fixture or non-Windows adapter.
+                        dispatch = asyncio.create_task(
+                            asyncio.to_thread(self.desktop.execute, action))
                     try:
                         await asyncio.wait_for(asyncio.shield(dispatch),
                                                timeout=action.timeout_seconds)
