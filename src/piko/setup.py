@@ -22,6 +22,44 @@ import httpx
 from piko.ollama import OllamaProvider, check_service
 
 
+def _valid_model_tag(value) -> bool:
+    """Config files are untrusted, even though stored only on this computer."""
+    import re
+
+    return (isinstance(value, str) and
+            re.fullmatch(r"[A-Za-z0-9_.:-]{1,150}", value) is not None and
+            not value.casefold().endswith(":cloud"))
+
+
+def load_model_selection(root: Path) -> tuple[str | None, str | None]:
+    path = root / "model-selection.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(data, dict) or not _valid_model_tag(data.get("reasoning")):
+        return None, None
+    vision = data.get("vision")
+    if vision is not None and not _valid_model_tag(vision):
+        return None, None
+    return data["reasoning"], vision
+
+
+def save_model_selection(root: Path, reasoning: str, vision: str | None) -> None:
+    if not _valid_model_tag(reasoning) or (vision is not None and not _valid_model_tag(vision)):
+        raise ValueError("Refusing invalid or cloud model identifiers")
+    root.mkdir(parents=True, exist_ok=True)
+    import uuid
+
+    temporary = root / ("model-selection-" + uuid.uuid4().hex + ".tmp")
+    try:
+        temporary.write_text(json.dumps({"reasoning": reasoning, "vision": vision}),
+                             encoding="utf-8")
+        os.replace(temporary, root / "model-selection.json")
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 MODELS = {
     "qwen2.5:1.5b": ("reasoning", 1.0),
     "qwen3:4b": ("reasoning", 2.5),
