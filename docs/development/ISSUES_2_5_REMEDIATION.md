@@ -9,6 +9,7 @@ This document tracks **merged remediation from PR #6 and follow-up release harde
 - Global/unbound input calls on `WindowsDesktop` fail closed. Semantic UIA invocation is used rather than arbitrary pointer clicks.
 - Owned keyboard chords reject keys already physically held by the user; only keys injected by Piko are released at cancellation and on failure.
 - Negative tests cover foreign HWND/PID, unbound calls, held user keys and emergency cancellation.
+- A follow-up input boundary also binds observed controls to Windows process creation time to reject PID reuse (same HWND/PID/executable but different process lifetime). Observation checks the same pinned window both after UIA enumeration and before/after screenshot capture to avoid returning pixels from a switched foreground application; regression fixtures simulate a switch during collection.
 - Follow-up hardening separates serial chord ownership from its pressed-key ledger: an emergency stop immediately releases agent-owned keys even while a foreground/UIA validation callback is blocked. A concurrent-thread negative test asserts no new injection after that blocked callback eventually returns, and new sessions refuse while a previous chord is still running.
 - A real Windows CI testbench exercises WinForms and an unauthorized foreground process switch.
 - **Still limited:** Native UIA COM operations may block and cannot guarantee an immediate hard kill. Windows security boundary requires stronger token-privilege isolation and long-running stress/hardware testing.
