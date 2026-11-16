@@ -446,6 +446,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     @app.post("/teach/start", dependencies=[Depends(auth)])
     async def teach_start(request: GrantRequest, seconds: int = 30):
+        if coach.status()["active"]:
+            raise HTTPException(status_code=409, detail="Stop visual coaching before Teach recording")
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Stop active desktop automation before recording")
         try:
