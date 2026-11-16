@@ -105,14 +105,17 @@ export class PikoClient {
       `/skills/${encodeURIComponent(slug)}/history`);
   }
   windows(executable: string) {
-    return this.request<Array<{ window_handle: number; title: string; executable: string; process_id: number }>>(
+    return this.request<Array<{ window_handle: number; title: string; executable: string; process_id: number; process_started_at: number }>>(
       `/windows?executable=${encodeURIComponent(executable)}`);
   }
-  createSession(objective: string, executable: string, targetWindowHandle?: number) {
+  createSession(objective: string, executable: string,
+    target?: { window_handle: number; process_id: number; process_started_at: number }) {
     return this.request<Session>('/sessions', {
       method: 'POST', body: JSON.stringify({
-        objective, executable, target_window_handle: targetWindowHandle ?? null,
-        allow_activate: targetWindowHandle !== undefined,
+        objective, executable, target_window_handle: target?.window_handle ?? null,
+        target_process_id: target?.process_id ?? null,
+        target_process_started_at: target?.process_started_at ?? null,
+        allow_activate: target !== undefined,
       }),
     });
   }
