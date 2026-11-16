@@ -15,6 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_preview_gating_and_release_files():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     jobs = workflow["jobs"]
+    assert "github.run_id" in workflow["concurrency"]["group"]
+    assert "github.event.pull_request.number" in workflow["concurrency"]["group"]
+    assert "github.event_name == 'pull_request'" in workflow["concurrency"]["cancel-in-progress"]
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer-smoke"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer-smoke"]["needs"] == ["windows-installer"]

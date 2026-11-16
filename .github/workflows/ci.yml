@@ -9,9 +9,11 @@ on:
 permissions:
   contents: read
 
-# Keep only the newest PR validation while never skipping a main-commit prerelease.
+# PRs keep only the newest validation. Every main push gets its own
+# concurrency group: GitHub otherwise silently replaces earlier *pending*
+# main runs, even when cancel-in-progress is false.
 concurrency:
-  group: piko-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: piko-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
