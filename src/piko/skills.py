@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from piko.contracts import Plan
@@ -32,7 +34,7 @@ class SkillLibrary:
             raise SkillError("Skill exists. Revision of established Skills requires review")
         folder.mkdir(mode=0o700)
         metadata = {"name": slug, "description": description,
-                    "version": "0.1.0", "status": "draft", "executable": app_executable,
+                    "version": "0.1.0", "revision": 1, "status": "draft", "executable": app_executable,
                     "actions": len(plan.actions), "requires_approval": True}
         (folder / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         (folder / "plan.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
@@ -63,6 +65,85 @@ class SkillLibrary:
                 except (ValueError, OSError):
                     continue
         return results
+
+    def revise_draft(self, slug: str, description: str, plan: Plan) -> dict:
+        """Archive the previous revision; verified Skills cannot be overwritten."""
+        folder = self._folder(slug)
+        metadata_path = folder / "metadata.json"
+        plan_path = folder / "plan.json"
+        markdown_path = folder / "SKILL.md"
+        if not all(p.is_file() and not p.is_symlink()
+                   for p in (metadata_path, plan_path, markdown_path)):
+            raise SkillError("Invalid Skill files")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if metadata.get("status") != "draft":
+            raise SkillError("A verified Skill cannot be modified in place")
+        if not description.strip() or len(description) > 500:
+            raise SkillError("Skill description must be 1–500 characters")
+        # Strict typed schema rejects shell commands, extraneous fields, and
+        # unsupported actions even if plan was loaded from a third-party file.
+        checked = Plan.model_validate(plan)
+        revision = int(metadata.get("revision", 1))
+        backup = folder / "revisions" / f"revision-{revision}"
+        if backup.exists() or backup.is_symlink():
+            raise SkillError("Revision archive already exists")
+        backup.mkdir(parents=True)
+        for source in (metadata_path, plan_path, markdown_path):
+            shutil.copy2(source, backup / source.name)
+        metadata["revision"] = revision + 1
+        metadata["version"] = f"0.1.{revision}"
+        metadata["actions"] = len(checked.actions)
+        metadata["description"] = description.strip()
+        # Keep text documentation aligned with the typed executable plan.
+        # Markdown is never used as an execution source.
+        doc = (
+            f"# {slug}\n\n{description.strip()}\n\n"
+            "## Status\nDRAFT — NOT VERIFIED. Always require fresh permissions "
+            "and review before executing.\n\n## Preconditions\n"
+            f"Foreground application: {metadata['executable']}\n\n## Procedure\n"
+            + "\n".join(
+                f"{i}. {action.kind.value}: {action.automation_id or 'application'}; "
+                f"expect {action.expected.automation_id}.{action.expected.property}"
+                for i, action in enumerate(checked.actions, 1)
+            )
+            + "\n\n## Safety\nNo arbitrary command execution.\n"
+        )
+        for target, content in (
+            (plan_path, checked.model_dump_json(indent=2)),
+            (metadata_path, json.dumps(metadata, indent=2)),
+            (markdown_path, doc),
+        ):
+            staged = folder / (target.name + ".pending")
+            staged.write_text(content, encoding="utf-8")
+            staged.replace(target)
+        return metadata
+
+    def record_run(self, slug: str, session_id: str, succeeded: bool) -> None:
+        folder = self._folder(slug)
+        self.load_plan(slug)
+        path = folder / "history.json"
+        if path.is_symlink():
+            raise SkillError("Unsafe Skill history link")
+        history = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        if not isinstance(history, list):
+            raise SkillError("Corrupt Skill history")
+        history.append({
+            "session_id": session_id,
+            "completed": bool(succeeded),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "note": "Successful session is not proof of generalization",
+        })
+        staged = folder / "history.pending"
+        staged.write_text(json.dumps(history[-250:], indent=2), encoding="utf-8")
+        staged.replace(path)
+
+    def history(self, slug: str) -> list[dict]:
+        folder = self._folder(slug)
+        self.load_plan(slug)
+        path = folder / "history.json"
+        if path.is_symlink():
+            raise SkillError("Unsafe Skill history link")
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
 
     def load_plan(self, slug: str) -> tuple[str, Plan]:
         folder = self._folder(slug)
