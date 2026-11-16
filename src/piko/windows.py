@@ -41,6 +41,10 @@ class WindowsDesktop:
             lambda key: bool(ctypes.windll.user32.GetAsyncKeyState(key) & 0x8000),
         )
         self._input_stopped = threading.Event()
+        # COM/UIA calls are not safely interruptible. Never re-arm a new
+        # session, or overlap a second native action, while one is in flight.
+        # The emergency stop does not acquire this lock and remains responsive.
+        self._native_dispatch_lock = threading.Lock()
 
     @staticmethod
     def _inject_key(key: int, down: bool) -> None:
@@ -49,8 +53,13 @@ class WindowsDesktop:
         ctypes.windll.user32.keybd_event(key, 0, 0 if down else 0x0002, 0)
 
     def begin_session(self) -> None:
-        self._keyboard.begin_session()
-        self._input_stopped.clear()
+        if not self._native_dispatch_lock.acquire(blocking=False):
+            raise DesktopUnavailable("A previous native UIA action is still running")
+        try:
+            self._keyboard.begin_session()
+            self._input_stopped.clear()
+        finally:
+            self._native_dispatch_lock.release()
 
     def _assert_input_not_stopped(self) -> None:
         signal = getattr(self, "_input_stopped", None)
@@ -176,9 +185,14 @@ class WindowsDesktop:
                 info = el.element_info
                 identity = info.automation_id or (
                     f"name::{info.control_type}::{info.name}" if info.name else "")
-                if identity == automation_id and not bool(getattr(info, "is_password", False)):
+                if identity == automation_id:
+                    if bool(getattr(info, "is_password", False)):
+                        raise DesktopUnavailable("UIA target is a password control")
                     matches.append(el)
+            except DesktopUnavailable:
+                raise
             except Exception:
+                # Unreadable controls are not accepted as valid targets.
                 continue
         if len(matches) != 1:
             raise DesktopUnavailable(f"UIA target not uniquely resolved ({len(matches)} matches)")
@@ -203,6 +217,17 @@ class WindowsDesktop:
         raise DesktopUnavailable("A fresh, authorized window observation is required")
 
     def execute_observed(self, action: Action, expected: Observation) -> None:
+        # Refuse concurrent input rather than queue an operation behind a
+        # potentially hung UIA call. A cancelled worker can never be replaced
+        # until its native dispatch has actually returned.
+        if not self._native_dispatch_lock.acquire(blocking=False):
+            raise DesktopUnavailable("A previous native UIA action is still running")
+        try:
+            self._execute_observed_locked(action, expected)
+        finally:
+            self._native_dispatch_lock.release()
+
+    def _execute_observed_locked(self, action: Action, expected: Observation) -> None:
         self._assert_input_not_stopped()
         hwnd = self._assert_active(expected)
         if any(el.is_password for el in expected.elements):
@@ -220,12 +245,18 @@ class WindowsDesktop:
                 # foreground switch. Non-invokable controls are refused.
                 if not hasattr(target, "invoke"):
                     raise DesktopUnavailable("Target does not expose a safe UIA Invoke pattern")
+                # COM capability/properties may themselves block; re-check
+                # authorization and cancellation directly before native input.
+                self._assert_active(expected)
+                self._assert_input_not_stopped()
                 target.invoke()
             else:
                 if target.element_info.control_type != "Edit":
                     raise DesktopUnavailable("Refusing text input into non-Edit control")
                 if not hasattr(target, "set_edit_text"):
                     raise DesktopUnavailable("Target does not expose UIA text input")
+                self._assert_active(expected)
+                self._assert_input_not_stopped()
                 target.set_edit_text(action.text)
         elif action.kind == ActionKind.HOTKEY:
             # PermissionManager checked the exact allowlist before dispatch.

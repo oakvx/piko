@@ -143,3 +143,71 @@ def test_memory_crash_recovery(tmp_path):
     assert recovered.list_sessions()[0].state == SessionState.FAILED
     assert "not automatically resumed" in recovered.list_sessions()[0].error
     recovered.close()
+
+
+@pytest.mark.asyncio
+async def test_review_binds_window_not_just_executable_name(tmp_path):
+    """Two windows of the same executable never share one plan approval."""
+    class SameExecutableDesktop(FakeDesktop):
+        def __init__(self):
+            super().__init__()
+            self.window = 101
+            self.creation = 100.0
+
+        def observe(self, include_image=False):
+            observed = super().observe(include_image=include_image)
+            observed.window_handle = self.window
+            observed.process_started_at = self.creation
+            return observed
+
+    desktop = SameExecutableDesktop()
+    store = LocalMemory(tmp_path / "same-executable.db")
+    try:
+        agent = Agent(desktop, TestPlanner(), store, PermissionManager())
+        session = agent.create("Save Ada", "demo.exe")
+        agent.permissions.grant(Grant(executable="demo.exe", session_id=session.id))
+        ready = await agent.prepare(session.id)
+        assert ready.state == SessionState.WAITING_FOR_USER
+        desktop.window = 202
+        denied = await agent.run(session.id)
+        assert denied.state == SessionState.FAILED
+        assert desktop.calls == []
+        failures = [event for event in store.list_events(session.id)
+                    if event["type"] == "action.failed"]
+        assert len(failures) == 1
+        assert failures[0]["payload"]["phase"] == "preflight"
+        assert failures[0]["payload"]["reason"] == "RuntimeError"
+        assert "202" not in str(failures[0]["payload"])
+        assert "Ada" not in str(failures[0]["payload"])
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_review_rejects_recycled_pid_even_if_window_handle_and_exe_match(tmp_path):
+    class ReusedProcessDesktop(FakeDesktop):
+        def __init__(self):
+            super().__init__()
+            self.creation = 100.0
+
+        def observe(self, include_image=False):
+            observed = super().observe(include_image=include_image)
+            observed.window_handle = 101
+            observed.process_started_at = self.creation
+            return observed
+
+    desktop = ReusedProcessDesktop()
+    store = LocalMemory(tmp_path / "pid-reused.db")
+    try:
+        agent = Agent(desktop, TestPlanner(), store, PermissionManager())
+        session = agent.create("Save Ada", "demo.exe")
+        agent.permissions.grant(Grant(executable="demo.exe", session_id=session.id))
+        await agent.prepare(session.id)
+        desktop.creation = 120.0
+        failed = await agent.run(session.id)
+        assert failed.state == SessionState.FAILED
+        assert desktop.calls == []
+        assert any(event["type"] == "action.failed"
+                   for event in store.list_events(session.id))
+    finally:
+        store.close()

@@ -37,6 +37,10 @@ class Agent:
         self._active_lock = asyncio.Lock()
         self._cancel: dict[str, asyncio.Event] = {}
         self._pause: dict[str, asyncio.Event] = {}
+        # A grant is app-scoped, but a reviewed plan must be bound to the
+        # SPECIFIC foreground window/process lifetime observed at review.
+        # This identity is ephemeral, never persisted or restored on restart.
+        self._approved_windows: dict[str, tuple[int | None, int, float | None]] = {}
 
     def _state(self, session: Session, target: SessionState) -> Session:
         result = transition(session, target)
@@ -64,7 +68,16 @@ class Agent:
         self.permissions.check_observe(session.app_executable, session.id)
         observation = self.desktop.observe(include_image=include_image)
         if observation.executable.casefold() != session.app_executable:
-            raise RuntimeError(f"Application changed: expected {session.app_executable}, got {observation.executable}")
+            raise RuntimeError("Authorized application executable changed")
+        pinned = self._approved_windows.get(session.id)
+        if pinned is not None and (
+            observation.window_handle != pinned[0]
+            or observation.process_id != pinned[1]
+            or observation.process_started_at != pinned[2]
+        ):
+            # In particular, two WinForms windows share powershell.exe, but
+            # consent for one is NOT consent for the second process/window.
+            raise RuntimeError("Authorized foreground window instance changed")
         self.permissions.check_observe(observation.executable, session.id)
         if any(e.is_password for e in observation.elements):
             raise RuntimeError("Sensitive password field detected; action blocked")
@@ -86,6 +99,12 @@ class Agent:
             for action in plan.actions:
                 if action.automation_id and action.automation_id not in known:
                     raise ValueError("Proposed plan references a UIA target absent from the current observation")
+            # Capture before the approval boundary; user may change windows
+            # during model planning, but run() will refuse the changed one.
+            self._approved_windows[session.id] = (
+                observation.window_handle, observation.process_id,
+                observation.process_started_at,
+            )
             session = session.model_copy(update={"plan": plan})
             self.sessions[session.id] = session
             session = self._state(session, SessionState.WAITING_FOR_USER)
@@ -112,6 +131,10 @@ class Agent:
                 self.permissions.check(session.app_executable, session.id, action)
                 if action.automation_id and action.automation_id not in known:
                     raise RuntimeError("Saved Skill target unavailable in the current foreground application")
+            self._approved_windows[session.id] = (
+                observed.window_handle, observed.process_id,
+                observed.process_started_at,
+            )
             session = self._state(session, SessionState.PLANNING)
             session = session.model_copy(update={"plan": plan})
             self.sessions[session.id] = session
@@ -126,6 +149,8 @@ class Agent:
         session = self.sessions[session_id]
         if session.state not in {SessionState.WAITING_FOR_USER, SessionState.PAUSED} or not session.plan:
             raise InvalidTransition("A reviewed plan or paused session is required")
+        if session.id not in self._approved_windows:
+            raise InvalidTransition("A fresh, window-bound review is required")
         if self._active_lock.locked():
             raise RuntimeError("Another agent session owns desktop input")
         async with self._active_lock:
