@@ -1,0 +1,4 @@
+# Resolved for CPython 3.11 / Windows x64 in CI.
+# Local editable project plus native Windows libraries and frozen backend builder.
+-e .[windows]
+pyinstaller>=6.10,<7
