@@ -85,7 +85,7 @@ class Agent:
             known = {el.automation_id for el in observation.elements if not el.is_password}
             for action in plan.actions:
                 if action.automation_id and action.automation_id not in known:
-                    raise ValueError(f"Unknown UIA target: {action.automation_id}")
+                    raise ValueError("Proposed plan references a UIA target absent from the current observation")
             session = session.model_copy(update={"plan": plan})
             self.sessions[session.id] = session
             session = self._state(session, SessionState.WAITING_FOR_USER)
