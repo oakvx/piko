@@ -18,7 +18,8 @@ const LENSES: { id: Lens; number: string; title: string; detail: string }[] = [
   { id: 'work', number: '01', title: 'Workfield', detail: 'Direct' },
   { id: 'teach', number: '02', title: 'Demonstrate', detail: 'Observe' },
   { id: 'skills', number: '03', title: 'Library', detail: 'Recall' },
-  { id: 'system', number: '04', title: 'System', detail: 'Inspect' },
+  { id: 'coach', number: '04', title: 'Coach', detail: 'Live vision' },
+  { id: 'system', number: '05', title: 'System', detail: 'Inspect' },
 ];
 
 function Mark({ name, size = 18 }: { name: 'arrow' | 'stop' | 'pause' | 'play' | 'eye' | 'refresh' | 'plus' | 'check' | 'close' | 'signal' | 'shield' | 'camera' | 'trash'; size?: number }) {
@@ -162,6 +163,12 @@ export default function App() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillConsent, setSkillConsent] = useState(false);
   const [skillParameterValues, setSkillParameterValues] = useState<Record<string, string>>({});
+  const [coachExecutable, setCoachExecutable] = useState('');
+  const [coachWindows, setCoachWindows] = useState<Array<{ window_handle: number; title: string; process_id: number }>>([]);
+  const [coachWindow, setCoachWindow] = useState('');
+  const [coachConsent, setCoachConsent] = useState(false);
+  const [coachOverlay, setCoachOverlay] = useState(false);
+  const [coachState, setCoachState] = useState<Awaited<ReturnType<PikoClient['coachStatus']>> | null>(null);
   const [teachExecutable, setTeachExecutable] = useState('');
   const [teachConsent, setTeachConsent] = useState(false);
   const [teachSeconds, setTeachSeconds] = useState(30);
@@ -273,6 +280,52 @@ export default function App() {
     void client.latestTeach().then(result => { if (active) setDemonstration(result); }).catch(() => {});
     return () => { active = false; };
   }, [client, connected]);
+
+  useEffect(() => {
+    if (!client || !connected) return;
+    let active = true;
+    const check = () => { void client.coachStatus().then(result => { if (active) setCoachState(result); }).catch(() => {}); };
+    check();
+    const timer = window.setInterval(check, 2500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [client, connected]);
+
+  const discoverCoachWindow = () => {
+    if (!client || !coachConsent || !coachExecutable.trim()) return;
+    void attempt('coach-windows', async () => {
+      const found = await client.windows(coachExecutable.trim());
+      setCoachWindows(found);
+      setCoachWindow(found.length === 1 ? String(found[0].window_handle) : '');
+      if (!found.length) throw new Error('No visible window for that game. Start it first.');
+      setNotice(found.length === 1 ? 'Game window identified.' : 'Choose the exact game window.');
+    });
+  };
+
+  const beginCoaching = () => {
+    if (!client || !coachConsent || !coachWindow) return;
+    void attempt('coach-start', async () => {
+      setCoachState(await client.startCoach(coachExecutable.trim(), Number(coachWindow)) as Awaited<ReturnType<PikoClient['coachStatus']>>);
+      setNotice('Visual coaching is active. Focus the game; no desktop input is sent.');
+    });
+  };
+
+  const endCoaching = () => {
+    if (!client) return;
+    void attempt('coach-stop', async () => {
+      setCoachState(await client.stopCoach() as Awaited<ReturnType<PikoClient['coachStatus']>>);
+      if (coachOverlay && isTauri()) await tauriInvoke('set_coach_overlay', { enabled: false });
+      setCoachOverlay(false);
+      setNotice('Local capture and coaching stopped. No frames were saved.');
+    });
+  };
+
+  const toggleCoachOverlay = () => {
+    if (!isTauri()) { setError('Compact always-on-top overlay requires the installed Piko app.'); return; }
+    void attempt('coach-overlay', async () => {
+      await tauriInvoke('set_coach_overlay', { enabled: !coachOverlay });
+      setCoachOverlay(!coachOverlay);
+    });
+  };
 
   const findTargetWindows = () => {
     if (!client || !consent || !executable.trim()) return;
@@ -514,6 +567,8 @@ export default function App() {
     <div className="welcome-bottom"><span>DESIGNED FOR REAL DESKTOP WORK</span><span>WINDOWS 10 / 11 · ALPHA</span></div>
   </main>;
 
+  if (coachOverlay) return <div className="coach-float"><div className="coach-float-heading"><span className="logo-text">piko<span>.</span></span><span>LIVE LOCAL COACH</span></div><div className="coach-live-status">{coachState?.stage || 'Connecting'} · {coachState?.frames || 0} analyzed frames</div><p className="coach-float-advice">{coachState?.advice || 'Focus your approved game window to receive a suggestion.'}</p>{coachState?.error && <p className="inline-error">{coachState.error}</p>}<div className="coach-float-buttons"><button type="button" onClick={toggleCoachOverlay}>Expand</button><button type="button" onClick={endCoaching}>Stop coaching</button></div><p className="coach-float-note">Frames stay on your PC. Keep the game in the foreground.</p></div>;
+
   return <div className="app-shell">
     <header className="masthead">
       <div className="brand"><span className="brand-icon"><PikoGlyph state={session?.state ?? 'idle'} compact /></span><span className="logo-text">piko<span>.</span></span><span className="brand-divider" /><span className="brand-subtitle">WORKFIELD / ALPHA</span></div>
@@ -524,7 +579,7 @@ export default function App() {
     <div className="workfield-body">
       <section className="page-heading">
         <div><Kicker index="P / 001">{LENSES.find(item => item.id === lens)?.detail} / Local system</Kicker>
-          <h1>{lens === 'work' ? <>Give it a goal.<br /><em>See the whole route.</em></> : lens === 'teach' ? <>Show the process.<br /><em>Keep the knowledge.</em></> : lens === 'skills' ? <>Small lessons.<br /><em>Ready to grow.</em></> : <>Everything local.<br /><em>Nothing hidden.</em></>}</h1>
+          <h1>{lens === 'work' ? <>Give it a goal.<br /><em>See the whole route.</em></> : lens === 'coach' ? <>See the game.<br /><em>Know the next move.</em></> : lens === 'teach' ? <>Show the process.<br /><em>Keep the knowledge.</em></> : lens === 'skills' ? <>Small lessons.<br /><em>Ready to grow.</em></> : <>Everything local.<br /><em>Nothing hidden.</em></>}</h1>
         </div>
         <div className="heading-right"><span className="heading-cross" aria-hidden="true">✳</span><StatusChip state={connected ? session?.state ?? 'idle' : 'offline'} /><p>Only authorized actions.<br />All outcomes independently verified.</p></div>
       </section>
@@ -605,6 +660,8 @@ export default function App() {
                 setNotice(`${item.name}: ${history.length} executions recorded; ${history.filter(x => x.completed).length} completed. No automatic certification.`);
               })}>History</button>
             </div></div></article>)}</div> : <div className="library-empty"><span className="library-star">✳</span><h3>Nothing here. Yet.</h3><p>Once you save a reviewed route, its Markdown Skill draft will appear here.</p><button type="button" onClick={() => setLens('work')}>Compose a route <Mark name="arrow" size={17} /></button></div>}</section>}
+
+      {lens === 'coach' && <section className="coach-panel"><div className="panel-top"><Kicker index="LIVE">Local vision coaching</Kicker><span className="panel-annotation">NO CLOUD / NO INPUT / NO RECORDINGS</span></div><h2>Your game stays in control.</h2><p>Piko analyzes only the selected game window while it is foreground and offers concise advice. Frames are processed by your local vision model and immediately discarded. Fullscreen-exclusive titles may block capture; borderless/windowed mode is recommended.</p><div className="coach-controls"><label htmlFor="coach-app">Game executable</label><input id="coach-app" placeholder="game.exe" value={coachExecutable} onChange={e => { setCoachExecutable(e.target.value); setCoachWindows([]); setCoachWindow(''); setCoachConsent(false); }} disabled={!!coachState?.active} /><label className="consent-line"><input type="checkbox" checked={coachConsent} onChange={e => setCoachConsent(e.target.checked)} disabled={!!coachState?.active} /><span>I authorize Piko to capture frames of this exact game window for up to 30 minutes, process them exclusively with local Ollama, and stop immediately on request. No clicks or keystrokes will be sent.</span></label><button type="button" className="system-secondary" onClick={discoverCoachWindow} disabled={!coachConsent || !coachExecutable.trim() || !!busy || !!coachState?.active}>Find game windows</button>{coachWindows.length > 0 && <select aria-label="Game window" value={coachWindow} onChange={e => setCoachWindow(e.target.value)} disabled={!!coachState?.active}><option value="">Select a game window</option>{coachWindows.map(w => <option key={w.window_handle} value={w.window_handle}>{w.title || 'Untitled'} · PID {w.process_id}</option>)}</select>}<div className="coach-actions">{coachState?.active ? <><button className="primary-button primary-button--stop" type="button" onClick={endCoaching}>Stop local capture</button><button className="system-secondary" type="button" onClick={toggleCoachOverlay}>Compact always-on-top advice</button></> : <button className="primary-button" type="button" onClick={beginCoaching} disabled={!coachConsent || !coachWindow || !modelSelection.vision || !!busy}>Start visual coaching <Mark name="arrow" /></button>}</div>{!modelSelection.vision && <p className="inline-error">Choose or install a local vision model in System first.</p>}<div className="coach-evidence"><strong>{coachState?.stage || 'Not started'}</strong><span>{coachState?.frames || 0} analyzed frames · Most recent: {coachState?.observed_at ? timeString(coachState.observed_at) : 'None'}</span></div><p className="coach-advice">{coachState?.advice || 'Advice will appear here once the authorized game window is visible in the foreground.'}</p>{coachState?.error && <p className="inline-error">{coachState.error}</p>}</div></section>}
 
       {lens === 'system' && <div className="system-board"><section className="system-card setup-card"><Kicker index="00">First-run setup</Kicker><h2>Intelligence, installed locally.</h2><p>Piko recommends models using RAM, CPU and detected NVIDIA VRAM. You can change them before downloading. No screenshots or prompts leave your computer.</p>{setupState ? <><div className="system-property"><span>RAM / CPU</span><strong>{setupState.hardware.ram_gb} GB / {setupState.hardware.cpu_cores} cores</strong></div><div className="system-property"><span>GPU VRAM</span><strong>{setupState.hardware.gpu_vram_gb === null ? 'Not detected' : `${setupState.hardware.gpu_vram_gb} GB`}</strong></div><div className="system-property"><span>Free disk</span><strong>{setupState.hardware.free_disk_gb} GB</strong></div><p className="setup-hint">{setupState.hardware.note}</p><label htmlFor="setup-reasoning">Recommended reasoning model</label><select id="setup-reasoning" value={setupReasoning} onChange={e => { setSetupReasoning(e.target.value); setSetupConsent(false); }} disabled={setupState.running}><option value="qwen2.5:1.5b">Qwen 2.5 · 1.5B (light)</option><option value="qwen3:4b">Qwen 3 · 4B (balanced)</option><option value="qwen3:8b">Qwen 3 · 8B (powerful)</option></select><label htmlFor="setup-vision">Local vision model</label><select id="setup-vision" value={setupVision} onChange={e => { setSetupVision(e.target.value); setSetupConsent(false); }} disabled={setupState.running}><option value="none">None (text / UIA only)</option><option value="qwen3-vl:2b-instruct">Qwen 3 VL · 2B (screen analysis)</option></select><label className="consent-line"><input type="checkbox" checked={setupConsent} onChange={e => setSetupConsent(e.target.checked)} disabled={setupState.running} /><span>Install the official signed Ollama runtime if missing, and download the selected models from the Ollama registry. This requires internet access, disk space and may use several GB.</span></label><button type="button" className="primary-button" disabled={!setupConsent || setupState.running || !!busy} onClick={installLocalAI}>{setupState.running ? 'Installing local AI…' : 'Install recommended local AI'} <Mark name="arrow" /></button><p className="setup-hint">Stage: {setupState.stage} {setupState.running ? `· ${setupState.progress}%` : ''} · Estimated model data {setupState.hardware.estimate_download_gb} GB</p>{setupState.error && <p className="inline-error" role="alert">{setupState.error}</p>}{setupState.stage === 'ready' && <p className="setup-ready">Local inference ready: {setupState.reasoning}</p>}</> : <p>Checking local system…</p>}</section><section className="system-card"><Kicker index="01">Runtime</Kicker><h2>Local by design.</h2><div className="system-property"><span>Connection</span><strong>{connected ? 'Loopback / active' : 'Disconnected'}</strong></div><div className="system-property"><span>Transport</span><strong>127.0.0.1:{backendPort}</strong></div><div className="system-property"><span>Host platform</span><strong>{health?.platform || 'Unavailable'}</strong></div><div className="system-property"><span>Active input sessions</span><strong>{health ? health.active_session_count : 'Unknown'}</strong></div><button type="button" className="system-secondary" onClick={() => { setToken(''); setHealth(null); setFrame(null); setSession(null); setConnected(false); }}><Mark name="close" size={16} /> Disconnect this window</button></section>
         <section className="system-card"><Kicker index="02">Inference</Kicker><h2>On-device intelligence.</h2><div className="system-property"><span>Reasoning model</span><strong>{modelSelection.reasoning || 'Not reported'}</strong></div><div className="system-property"><span>Vision model</span><strong>{modelSelection.vision || 'Not configured'}</strong></div><div className="system-property"><span>Ollama discovery</span><strong>{modelError ? 'Unavailable' : models === null ? 'Checking…' : `${models.length} installed`}</strong></div>{modelError && <p className="inline-error">{modelError}</p>}<div className="model-list">{models?.map(model => <div key={model.name}><strong>{model.name}</strong><small>{model.details?.parameter_size || 'Parameter size not reported'}</small></div>)}</div>
