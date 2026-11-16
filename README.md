@@ -166,8 +166,8 @@ redistributable or delete a user's pre-existing Ollama/models on uninstall.
 
 Workfield can select an explicit open window by executable, title and process
 identity even while Piko is in front. UIA planning is background-capable; a
-separately reviewed action activates only the approved HWND. Fresh pixels are
-never claimed for an occluded/unselected window.
+separately reviewed action activates only the approved HWND. HWND-specific screenshots are attempted on supported Windows/Pillow versions,
+but unsupported or blank capture falls back to UIA without foreign pixels.
 
 The optional **Coach** lens captures the approved foreground game window at a
 bounded interval and generates tips using local Ollama vision. Capture stops on
