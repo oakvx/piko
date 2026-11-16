@@ -269,3 +269,40 @@ async def test_teach_api_rechecks_grants_after_start(tmp_path):
         assert latest["frames"] == 1
         assert any(e["type"] == "capture.stopped" and
                    e["reason"] == "authorization_lost" for e in latest["events"])
+
+
+@pytest.mark.asyncio
+async def test_native_scoped_capture_denial_invalidates_recording(tmp_path):
+    """A native refusal must stop Teach, not skip and resume on refocus."""
+    from piko.windows import DesktopUnavailable
+
+    class NativeScopedDesktop(EventDesktop):
+        def __init__(self):
+            super().__init__()
+            self.captures = 0
+            self.denied = False
+
+        def observe_scoped(self, approved, include_image=False):
+            assert approved.window_handle == 123
+            assert approved.process_id == 81
+            self.captures += 1
+            if self.captures > 1:
+                self.denied = True
+                raise DesktopUnavailable("Foreground HWND no longer consented")
+            return self.observe(include_image=include_image)
+
+    root = tmp_path / "recordings"
+    recorder = TeachRecorder(NativeScopedDesktop(), root)
+    identifier = await recorder.start("demo.exe", seconds=5)
+    for _ in range(150):
+        if recorder.active_id is None:
+            break
+        await asyncio.sleep(0.025)
+    assert recorder.active_id is None
+    manifest = recorder.get_latest()
+    assert manifest["id"] == identifier
+    assert manifest["frames"] == 1
+    assert any(event["type"] == "capture.stopped"
+               and event["reason"] == "native_scope_denied"
+               for event in manifest["events"])
+    assert len(list((root / identifier).glob("frame-*.png"))) == 1
