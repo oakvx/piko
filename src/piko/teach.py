@@ -11,6 +11,7 @@ import queue
 import re
 import shutil
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -42,13 +43,21 @@ class TeachRecorder:
         self._dropped_input_events = 0
         self._listener_stop = None
         self._event_capture_available = False
+        self._authorized: Callable[[], None] | None = None
+        self._identity: tuple[int | None, int, float | None] | None = None
 
-    async def start(self, executable: str, seconds: int = 30) -> str:
+    async def start(self, executable: str, seconds: int = 30,
+                    authorize_capture: Callable[[], None] | None = None) -> str:
         if self.active_id is not None:
             raise TeachError("Demonstration already active")
         if not 1 <= seconds <= 300:
             raise TeachError("Demonstration duration must be 1–300 seconds")
+        # Recheck the scoped grant before AND after the preflight observation.
+        if authorize_capture is not None:
+            authorize_capture()
         snapshot = await asyncio.to_thread(self.desktop.observe)
+        if authorize_capture is not None:
+            authorize_capture()
         if snapshot.executable.casefold() != executable.casefold():
             raise TeachError("Authorized application must be foreground before recording")
         if any(element.is_password for element in snapshot.elements):
@@ -57,6 +66,10 @@ class TeachRecorder:
             raise TeachError("Credential managers may not be recorded")
         self.active_id = uuid4().hex
         self._app = executable.casefold()
+        self._identity = (
+            snapshot.window_handle, snapshot.process_id, snapshot.process_started_at,
+        )
+        self._authorized = authorize_capture
         self._stop.clear()
         self._events = []
         folder = self.root / self.active_id
@@ -72,6 +85,8 @@ class TeachRecorder:
                     self._app, snapshot.window_handle, self._enqueue_event)
             except Exception as exc:
                 self.active_id = None
+                self._identity = None
+                self._authorized = None
                 shutil.rmtree(folder)
                 raise TeachError(f"Cannot start scoped Teach input capture: {exc}") from exc
         self._task = asyncio.create_task(self._record(self.active_id, seconds))
@@ -84,8 +99,14 @@ class TeachRecorder:
         if the adapter erroneously passes one. The native Windows hook already
         scopes events to the approved HWND; this is a second privacy boundary.
         """
-        if not isinstance(event, dict) or self.active_id is None:
+        if not isinstance(event, dict) or self.active_id is None or self._stop.is_set():
             return
+        if self._authorized is not None:
+            try:
+                self._authorized()
+            except (PermissionError, RuntimeError, ValueError):
+                # A revoked/expired grant may not generate even input metadata.
+                return
         kind = event.get("type")
         try:
             if kind == "input.special_key":
@@ -132,38 +153,69 @@ class TeachRecorder:
             self._events.append(event)
 
     async def _record(self, identifier: str, seconds: int) -> None:
-        # Mouse/special-key events are strictly scoped by the Windows bridge;
-        # raw text and passwords are never recorded in the event stream.
+        """Write only frames from the *same* consented process/window lifetime."""
         folder = self.root / identifier
         started = time.monotonic()
         frames = 0
         try:
             while time.monotonic() - started < seconds and not self._stop.is_set():
                 try:
+                    if self._authorized is not None:
+                        self._authorized()
                     observation = await asyncio.to_thread(self.desktop.observe, True)
-                    if observation.executable.casefold() != self._app:
-                        self._events.append({"type": "capture.skipped", "reason": "app_changed"})
-                    elif not any(e.is_password for e in observation.elements):
-                        import base64
-                        (folder / f"frame-{frames:04d}.png").write_bytes(
-                            base64.b64decode(observation.image_base64, validate=True))
-                        record = observation.model_dump(mode="json", exclude={"image_base64"})
-                        # Screenshots are explicitly authorized; the machine-readable
-                        # timeline must not duplicate typed contents or document titles.
-                        record["window_title"] = ""
-                        for element in record["elements"]:
-                            element["value"] = None
-                            # ANY control name can be user content, including
-                            # buttons and labels ("Delete customer Alice").
-                            element["name"] = ""
-                            # Fallback IDs embed that same text, regardless of
-                            # control type. Only stable explicit IDs survive.
-                            if element["automation_id"].startswith("name::"):
-                                element["automation_id"] = ""
-                        self._events.append({"type": "observation", "data": record})
-                        frames += 1
+                    if self._authorized is not None:
+                        self._authorized()
+                    identity = (
+                        observation.window_handle, observation.process_id,
+                        observation.process_started_at,
+                    )
+                    if (observation.executable.casefold() != self._app
+                            or identity != self._identity):
+                        # Same executable does not mean same authorized window.
+                        # Discard the returned screenshot without writing it.
+                        self._events.append({
+                            "type": "capture.stopped", "reason": "window_changed",
+                        })
+                        self._stop.set()
+                        break
+                    if any(el.is_password for el in observation.elements):
+                        self._events.append({
+                            "type": "capture.stopped", "reason": "password_field",
+                        })
+                        self._stop.set()
+                        break
+                    import base64
+                    frame_file = f"frame-{frames:04d}.png"
+                    (folder / frame_file).write_bytes(
+                        base64.b64decode(observation.image_base64, validate=True))
+                    record = observation.model_dump(
+                        mode="json", exclude={"image_base64"})
+                    # Exact file link and completed-capture time connect frames,
+                    # UIA metadata and native input events on one UTC timeline.
+                    record["frame_index"] = frames
+                    record["frame_file"] = frame_file
+                    record["captured_at"] = datetime.now(timezone.utc).isoformat()
+                    record["window_title"] = ""
+                    for element in record["elements"]:
+                        element["value"] = None
+                        # UIA names and fallback ids can include user secrets.
+                        element["name"] = ""
+                        if element["automation_id"].startswith("name::"):
+                            element["automation_id"] = ""
+                    self._events.append({"type": "observation", "data": record})
+                    frames += 1
+                except (PermissionError,) as exc:
+                    # Revocation/expiry ends recording instead of repeatedly
+                    # trying to capture an application without a valid grant.
+                    self._events.append({
+                        "type": "capture.stopped", "reason": "authorization_lost",
+                    })
+                    self._stop.set()
+                    break
                 except Exception as exc:
-                    self._events.append({"type": "capture.skipped", "reason": type(exc).__name__})
+                    self._events.append({
+                        "type": "capture.skipped", "reason": type(exc).__name__,
+                    })
                 self._drain_events()
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=1)
@@ -174,7 +226,10 @@ class TeachRecorder:
                 self._listener_stop()
                 self._listener_stop = None
             self._drain_events()
-            self._events.sort(key=lambda e: e.get("timestamp") or e.get("data", {}).get("timestamp") or "")
+            self._events.sort(key=lambda e: (
+                e.get("timestamp") or e.get("data", {}).get("captured_at")
+                or e.get("data", {}).get("timestamp") or ""
+            ))
             (folder / "manifest.json").write_text(json.dumps({
                 "id": identifier, "app": self._app, "frames": frames,
                 "dropped_input_events": self._dropped_input_events,
@@ -187,6 +242,8 @@ class TeachRecorder:
                 "events": self._events,
             }, indent=2), encoding="utf-8")
             self.active_id = None
+            self._identity = None
+            self._authorized = None
 
     async def stop(self) -> dict:
         if self._task is None:
@@ -221,7 +278,7 @@ class TeachRecorder:
             # Use only a screenshot observation taken BEFORE the event. Never
             # guess an element on a changed or unobserved application.
             earlier = [o for o in observations
-                       if o["timestamp"] <= click["timestamp"]
+                       if o.get("captured_at", o["timestamp"]) <= click["timestamp"]
                        and o["executable"] == manifest["app"]]
             if earlier:
                 observed = earlier[-1]
