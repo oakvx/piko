@@ -61,7 +61,12 @@ def test_background_window_uia_uses_selected_hwnd_not_current_foreground():
         assert background.window_handle == approved.window_handle
         assert background.process_id == approved.process_id
         assert background.process_started_at == approved.process_started_at
-        assert background.image_base64 is None
+        # Native HWND-only capture may produce pixels in supported WinForms
+        # environments; unavailable/blank capture is a valid UIA fallback.
+        # In either case Piko must not capture the foreground foreign process.
+        if background.image_base64 is not None:
+            assert background.capture_bounds is not None
+            assert background.capture_bounds[2] > 1
         assert {"NameInput", "SaveButton", "StatusLabel"} <= {
             item.automation_id for item in background.elements
         }
