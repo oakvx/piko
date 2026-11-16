@@ -193,7 +193,8 @@ async def test_skill_pause_resume_records_one_terminal_run_with_metrics(tmp_path
         running = agent._state(agent.sessions[sid], SessionState.EXECUTING)
         if len(calls) == 1:
             return agent._state(running, SessionState.PAUSED)
-        return agent._state(running, SessionState.COMPLETED)
+        verifying = agent._state(running, SessionState.VERIFYING)
+        return agent._state(verifying, SessionState.COMPLETED)
 
     agent.run = deterministic_paused_then_completed
     auth = {"Authorization": "Bearer " + "p" * 32}
