@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from piko.contracts import Observation, UIElement
-from piko.ollama import InferenceError, OllamaProvider
+from piko.ollama import GeneratedPlan, InferenceError, OllamaProvider
 
 
 class FakeResponse:
@@ -117,5 +117,42 @@ async def test_double_invalid_model_output_fails_closed_without_leaking_raw_text
         assert sensitive not in str(error.value)
         assert "schema validation" in str(error.value)
         assert len(fake.payloads) == 2
+    finally:
+        await provider.close()
+
+
+def test_model_facing_schema_requires_ui_selector_and_forbids_click_text():
+    schema = GeneratedPlan.model_json_schema()
+    variants = schema["properties"]["actions"]["items"]
+    assert variants["discriminator"]["propertyName"] == "kind"
+    assert len(variants["oneOf"]) == 4
+    click = schema["$defs"]["GeneratedClick"]
+    typing = schema["$defs"]["GeneratedSetText"]
+    assert {"kind", "automation_id", "expected"} <= set(click["required"])
+    assert "text" not in click["properties"]
+    assert "keys" not in click["properties"]
+    assert {"kind", "automation_id", "text", "expected"} <= set(typing["required"])
+    assert "keys" not in typing["properties"]
+    assert "text" not in schema["$defs"]["GeneratedWait"]["properties"]
+    assert "text" not in schema["$defs"]["GeneratedHotkey"]["properties"]
+
+
+@pytest.mark.asyncio
+async def test_plan_rejects_hallucinated_expectation_target():
+    payload = json.dumps({
+        "objective": "Save", "explanation": "Click observed button",
+        "actions": [{
+            "kind": "ui.click", "automation_id": "SaveButton",
+            "expected": {
+                "automation_id": "InventedLabel", "property": "text_equals", "value": "Done",
+            },
+        }],
+    })
+    provider = OllamaProvider("local-text")
+    fake = FakeClient([payload])
+    provider.client = fake
+    try:
+        with pytest.raises(InferenceError, match="verification selector"):
+            await provider.plan("Click Save", example_observation())
     finally:
         await provider.close()
