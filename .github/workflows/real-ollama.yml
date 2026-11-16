@@ -9,6 +9,7 @@ on:
     paths:
       - '.github/workflows/real-ollama.yml'
       - 'tests/real/test_ollama_inference.py'
+      - 'tests/real/test_ollama_windows_agent.py'
   workflow_dispatch:
 
 permissions:
@@ -23,6 +24,7 @@ jobs:
       OLLAMA_HOST: '127.0.0.1:11434'
       OLLAMA_NO_CLOUD: '1'
       PIKO_REAL_OLLAMA: '1'
+      PIKO_GUI_SMOKE: '1'
       PIKO_OLLAMA_REASONING_MODEL: 'qwen2.5:1.5b'
       PIKO_OLLAMA_VISION_MODEL: 'qwen3-vl:2b-instruct'
     steps:
@@ -72,11 +74,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Reasoning model download failed' }
           & $env:PIKO_OLLAMA_BIN pull $env:PIKO_OLLAMA_VISION_MODEL
           if ($LASTEXITCODE -ne 0) { throw 'Vision model download failed' }
-      - name: Run REAL reasoning and image inference against Piko provider
+      - name: Run REAL reasoning, vision and model-driven native Agent E2E
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path acceptance -Force | Out-Null
-          python -m pytest -q -rs --junitxml=acceptance/real-ollama-windows.xml tests/real/test_ollama_inference.py
+          python -m pytest -q -rs --junitxml=acceptance/real-ollama-windows.xml tests/real/test_ollama_inference.py tests/real/test_ollama_windows_agent.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Collect sanitized model-test evidence
         if: always()
