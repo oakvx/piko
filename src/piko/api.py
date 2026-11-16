@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from piko.contracts import AccessProfile, Grant, SessionState
+from piko.contracts import AccessProfile, Grant, Plan, SessionState
 from piko.memory import LocalMemory
 from piko.ollama import OllamaProvider
 from piko.orchestrator import Agent
@@ -42,6 +42,15 @@ class SkillRequest(BaseModel):
     description: str
 
 
+class SkillReviewRequest(BaseModel):
+    authorize_foreground_app: bool
+
+
+class SkillRevisionRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=500)
+    plan: Plan
+
+
 def data_root() -> Path:
     return Path(os.environ.get("PIKO_DATA_DIR") or
                 (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Piko"))
@@ -60,6 +69,16 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     skills = SkillLibrary((root or data_root()) / "skills")
     teach = TeachRecorder(desktop, (root or data_root()) / "demonstrations")
     running: dict[str, asyncio.Task] = {}
+    skill_runs: dict[str, str] = {}
+
+    async def run_and_record(session_id: str):
+        result = await agent.run(session_id)
+        skill_slug = skill_runs.pop(session_id, None)
+        if skill_slug:
+            # A passing session is evidence, not automatic Skill certification.
+            skills.record_run(skill_slug, session_id,
+                              succeeded=result.state == SessionState.COMPLETED)
+        return result
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         yield
@@ -154,7 +173,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             raise HTTPException(status_code=409, detail="Approve only a reviewed pending plan")
         if any(not task.done() for task in running.values()):
             raise HTTPException(status_code=409, detail="Another session currently controls inputs")
-        running[sid] = asyncio.create_task(agent.run(sid))
+        running[sid] = asyncio.create_task(run_and_record(sid))
         return {"accepted": True, "session_id": sid}
 
     @app.post("/sessions/{sid}/pause", dependencies=[Depends(auth)])
@@ -175,7 +194,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
             agent.resume(sid)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        running[sid] = asyncio.create_task(agent.run(sid))
+        running[sid] = asyncio.create_task(run_and_record(sid))
         return {"accepted": True, "session_id": sid}
 
     @app.get("/sessions/{sid}/observation", dependencies=[Depends(auth)])
@@ -217,6 +236,37 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     @app.get("/skills", dependencies=[Depends(auth)])
     async def get_skills():
         return skills.list_skills()
+
+    @app.post("/skills/{slug}/review", dependencies=[Depends(auth)])
+    async def review_skill(slug: str, request: SkillReviewRequest):
+        if not request.authorize_foreground_app:
+            raise HTTPException(status_code=403, detail="Explicit app consent required")
+        if any(not task.done() for task in running.values()):
+            raise HTTPException(status_code=409, detail="Desktop inputs currently in use")
+        try:
+            executable, plan = skills.load_plan(slug)
+            session = agent.create(plan.objective, executable)
+            permissions.grant(Grant(executable=executable, profile=AccessProfile.LIMITED,
+                                    session_id=session.id))
+            prepared = await agent.prepare_from_plan(session.id, plan)
+            skill_runs[session.id] = slug
+            return prepared
+        except (ValueError, PermissionError, RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/skills/{slug}/history", dependencies=[Depends(auth)])
+    async def skill_history(slug: str):
+        try:
+            return skills.history(slug)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/skills/{slug}/revise", dependencies=[Depends(auth)])
+    async def revise_skill(slug: str, request: SkillRevisionRequest):
+        try:
+            return skills.revise_draft(slug, request.description, request.plan)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/sessions/{sid}/save-skill", dependencies=[Depends(auth)])
     async def save_skill(sid: str, request: SkillRequest):
