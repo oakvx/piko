@@ -21,8 +21,15 @@ from piko.ollama import OllamaProvider
 from piko.orchestrator import Agent
 from piko.permissions import PermissionManager
 from piko.skills import SkillLibrary
+from piko.setup import SetupCoordinator
 from piko.teach import TeachRecorder
 from piko.windows import WindowsDesktop
+
+
+class SetupInstallRequest(BaseModel):
+    reasoning_model: str = Field(min_length=1, max_length=150)
+    vision_model: str | None = Field(default=None, max_length=150)
+    confirm_download: bool = False
 
 
 class CreateSession(BaseModel):
@@ -84,6 +91,8 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     inference = inference or OllamaProvider(reasoning_model=reasoning_model, vision_model=vision_model)
     agent = Agent(desktop, inference, store, permissions,
                   vision=inference.interpret if vision_model else None)
+    setup = SetupCoordinator(inference, lambda vision: setattr(
+        agent, "vision", inference.interpret if vision else None))
     skills = SkillLibrary((root or data_root()) / "skills")
     teach = TeachRecorder(desktop, (root or data_root()) / "demonstrations")
     running: dict[str, asyncio.Task] = {}
@@ -155,6 +164,22 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
                     "vision": getattr(inference, "vision_model", None)}
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/setup", dependencies=[Depends(auth)])
+    async def setup_status():
+        return setup.status()
+
+    @app.post("/setup/install", dependencies=[Depends(auth)])
+    async def setup_install(request: SetupInstallRequest):
+        if not request.confirm_download:
+            raise HTTPException(status_code=403, detail="Confirm third-party runtime and model downloads")
+        if any(not task.done() for task in running.values()):
+            raise HTTPException(status_code=409, detail="Cannot install models while the agent is running")
+        try:
+            setup.start(request.reasoning_model, request.vision_model)
+            return setup.status()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/models/selection", dependencies=[Depends(auth)])
     async def select_models(request: ModelSelectionRequest):
