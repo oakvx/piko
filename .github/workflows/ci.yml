@@ -83,7 +83,7 @@ jobs:
         run: ./scripts/ci/collect-installer.ps1 -Commit "${{ github.sha }}" -Build "${{ github.run_number }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: pico-installer-${{ github.sha }}
+          name: piko-installer-${{ github.sha }}
           path: |
             distribution/*.exe
             distribution/*.sha256
@@ -100,7 +100,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: pico-installer-${{ github.sha }}
+          name: piko-installer-${{ github.sha }}
           path: distribution
       - name: Publish installer for this exact commit
         env:
@@ -124,6 +124,6 @@ jobs:
           else
             gh release create "$tag" "${installers[0]}" "${checksums[0]}" \
               --target "$SHA" --prerelease --latest=false \
-              --title "Pico Preview ${SHA:0:12}" \
+              --title "Piko Preview ${SHA:0:12}" \
               --notes "Automated Windows x64 NSIS preview for commit $SHA. Includes the local Python agent backend. Experimental: no guarantee of end-to-end hardware validation; Ollama and compatible model are user-managed."
           fi
