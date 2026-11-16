@@ -90,3 +90,15 @@ def test_ci_version_stamping_keeps_dependency_locks_synchronized(tmp_path, monke
     npm = json.loads((desktop / "package-lock.json").read_text())
     assert npm["version"] == npm["packages"][""]["version"] == "0.1.321"
     assert 'version = "0.1.321"' in (tauri / "Cargo.lock").read_text()
+
+
+def test_ci_github_actions_are_immutable_pins():
+    """Prevent a moving third-party action tag from changing release provenance."""
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    for job in workflow["jobs"].values():
+        for step in job.get("steps", []):
+            uses = step.get("uses")
+            if uses:
+                assert re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[a-f0-9]{40}", uses), (
+                    f"Unpinned GitHub Action: {uses}"
+                )
