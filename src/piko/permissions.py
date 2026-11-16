@@ -8,7 +8,7 @@ class PermissionDenied(PermissionError):
     pass
 
 
-SAFE_HOTKEYS = frozenset({("ctrl", "a"), ("ctrl", "c"), ("ctrl", "v"), ("tab",), ("escape",)})
+SAFE_HOTKEYS = frozenset({("ctrl", "a"), ("ctrl", "c"), ("ctrl", "v"), ("ctrl", "w"), ("tab",), ("escape",)})
 
 
 class PermissionManager:
