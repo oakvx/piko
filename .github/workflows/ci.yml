@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Keep only the newest PR validation while never skipping a main-commit prerelease.
+concurrency:
+  group: piko-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python:
     name: Python ${{ matrix.python-version }} / ${{ matrix.os }}
