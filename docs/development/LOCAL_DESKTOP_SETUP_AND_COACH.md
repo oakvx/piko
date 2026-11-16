@@ -73,9 +73,9 @@ The Coach lens is **advice-only**:
 2. Enter the game executable, consent to a maximum 30-minute read-only
    session, select its precise window, and start.
 3. Return focus to the game. Piko samples **only when that exact HWND/PID is
-   foreground**, never a foreign application. Each frame is supplied directly
-   to the loopback Ollama vision model and discarded after analysis; no local
-   screenshot history or upload is created.
+   foreground**, never a foreign application. Each frame is acquired through HWND-specific capture (not an unrestricted
+   desktop crop), supplied directly to the loopback Ollama vision model and
+   discarded after analysis; no local screenshot history or upload is created.
 4. Optionally enable the compact, always-on-top Tauri advice window and
    return focus to the game. A small latency is expected: minimum sample
    interval is four seconds, plus actual local inference time.
