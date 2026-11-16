@@ -71,6 +71,7 @@ async def test_end_to_end_plan_execute_verify(setup):
     assert desktop.released == 1
     events = store.list_events(session.id)
     assert [event['type'] for event in events].count('verification.completed') == 2
+    assert [event['type'] for event in events].count('action.verified') == 2
     assert all('Ada' not in str(event['payload']) for event in events)
 
 
@@ -86,7 +87,7 @@ async def test_no_permission_no_inputs(setup):
 
 @pytest.mark.asyncio
 async def test_ui_switch_during_execution_stops(setup):
-    agent, desktop, _, perms = setup
+    agent, desktop, store, perms = setup
     session = agent.create("Save Ada", "demo.exe")
     perms.grant(Grant(executable="demo.exe"))
     await agent.prepare(session.id)
@@ -95,6 +96,13 @@ async def test_ui_switch_during_execution_stops(setup):
     assert done.state == SessionState.FAILED
     assert desktop.calls == []
     assert desktop.released == 1
+    failed = [event for event in store.list_events(session.id)
+              if event["type"] == "action.failed"]
+    assert len(failed) == 1
+    assert failed[0]["payload"] == {
+        "action": "ui.set_text", "index": 0, "phase": "preflight",
+        "reason": "RuntimeError",
+    }
 
 
 @pytest.mark.asyncio
