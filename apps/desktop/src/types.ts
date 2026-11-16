@@ -71,6 +71,7 @@ export interface Demonstration {
   frames: number;
   recording: boolean;
   limitations: string[];
+  stopped_reason?: string | null;
 }
 
 export interface TeachAnalysis {
