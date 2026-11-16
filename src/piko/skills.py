@@ -8,8 +8,10 @@ import shutil
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Mapping
 
 from piko.contracts import Plan
+from piko.skill_parameters import bind_plan, parameter_names
 
 
 class SkillError(ValueError):
@@ -32,12 +34,15 @@ class SkillLibrary:
     def save_draft(self, slug: str, description: str, app_executable: str,
                    plan: Plan) -> Path:
         folder = self._folder(slug)
+        checked = Plan.model_validate(plan)
+        parameters = parameter_names(checked)
         if folder.exists():
             raise SkillError("Skill exists. Revision of established Skills requires review")
         folder.mkdir(mode=0o700)
         metadata = {"name": slug, "description": description,
                     "version": "0.1.0", "revision": 1, "status": "draft", "executable": app_executable,
-                    "actions": len(plan.actions), "requires_approval": True}
+                    "actions": len(checked.actions), "parameters": parameters,
+                    "requires_approval": True}
         (folder / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         (folder / "plan.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
         (folder / "SKILL.md").write_text(
@@ -85,6 +90,7 @@ class SkillLibrary:
         # Strict typed schema rejects shell commands, extraneous fields, and
         # unsupported actions even if plan was loaded from a third-party file.
         checked = Plan.model_validate(plan)
+        parameters = parameter_names(checked)
         revision = int(metadata.get("revision", 1))
         backup = folder / "revisions" / f"revision-{revision}"
         if backup.exists() or backup.is_symlink():
@@ -95,6 +101,7 @@ class SkillLibrary:
         metadata["revision"] = revision + 1
         metadata["version"] = f"0.1.{revision}"
         metadata["actions"] = len(checked.actions)
+        metadata["parameters"] = parameters
         metadata["description"] = description.strip()
         # Keep text documentation aligned with the typed executable plan.
         # Markdown is never used as an execution source.
@@ -223,4 +230,10 @@ class SkillLibrary:
             raise SkillError("Skill metadata or plan missing")
         metadata = json.loads(files[0].read_text(encoding="utf-8"))
         plan = Plan.model_validate_json(files[1].read_text(encoding="utf-8"))
+        parameter_names(plan)
         return metadata["executable"], plan
+
+    def prepare_plan(self, slug: str, parameters: Mapping[str, str]) -> tuple[str, Plan]:
+        """Produce a validated plan for review; execution still requires a new grant."""
+        executable, template = self.load_plan(slug)
+        return executable, bind_plan(template, parameters)

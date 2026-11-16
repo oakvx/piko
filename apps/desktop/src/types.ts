@@ -54,6 +54,7 @@ export interface Skill {
   status: string;
   executable: string;
   actions: number;
+  parameters?: string[];
 }
 export interface Observation {
   timestamp: string;

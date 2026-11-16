@@ -222,6 +222,12 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .library-card h3 { margin:8px 0; font-size:17px; letter-spacing:-.03em; }
 .library-card p { font-size:11px; line-height:1.7; color:#918a9b; margin:0 0 13px; }
 .library-info { font:10px Consolas,monospace; color:#aea5b7; }
+.skill-param-grid { display:grid; gap:9px; margin:16px 0 12px; min-width:0; }
+.skill-param-control { display:grid; gap:5px; font:700 10px Consolas,monospace; color:#847396; overflow-wrap:anywhere; }
+.skill-param-control input { width:100%; min-width:0; padding:10px 11px; background:#fff; border:1px solid #dcd3e6; border-radius:8px; color:#352e40; font-family:inherit; font-size:12px; font-weight:500; }
+.skill-param-control input:focus-visible { outline:2px solid #ad8dd6; outline-offset:2px; }
+.skill-param-control input:disabled { opacity:.65; }
+
 .library-empty { min-height:330px; display:flex; justify-content:center; align-items:center; flex-direction:column; text-align:center; }
 .library-star { font-size:70px; color:#b8a4df; }
 .library-empty h3 { font-size:24px; letter-spacing:-.05em; margin:10px 0; }
