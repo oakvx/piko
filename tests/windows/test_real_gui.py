@@ -25,7 +25,7 @@ def test_real_windows_testbench_uia_actions_and_observed_outcome():
     from pywinauto import Desktop
     from piko.contracts import Action, Expectation
     from piko.verification import verify
-    from piko.windows import WindowsDesktop
+    from piko.windows import DesktopUnavailable, WindowsDesktop
 
     script = ROOT / "examples" / "testbench.ps1"
     app = subprocess.Popen(
@@ -74,6 +74,24 @@ def test_real_windows_testbench_uia_actions_and_observed_outcome():
                    for e in latest.elements if e.automation_id in
                    {"NameInput", "SaveButton", "StatusLabel"}])
         )
+        # Negative control: switching to another real WinForms process must
+        # never redirect an already-authorized UIA action to the new window.
+        foreign = subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(script), "-Title", "Piko Foreign Testbench"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        try:
+            other_window = Desktop(backend="uia").window(title="Piko Foreign Testbench")
+            other_window.wait("visible enabled", timeout=30)
+            other_window.set_focus()
+            assert bridge.observe().process_id == foreign.pid
+            with pytest.raises(DesktopUnavailable, match="changed"):
+                bridge.execute_observed(click, observation)
+        finally:
+            foreign.terminate()
+            foreign.wait(timeout=10)
         bridge.emergency_release()
     finally:
         app.terminate()
