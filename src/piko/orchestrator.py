@@ -29,7 +29,11 @@ class Agent:
         self.memory = memory
         self.permissions = permissions
         self.vision = vision
-        self.sessions: dict[str, Session] = {}
+        # Recovered sessions are historical only: LocalMemory marks every
+        # nonterminal session failed because plans and grants are not persisted.
+        self.sessions: dict[str, Session] = {
+            session.id: session for session in self.memory.list_sessions()
+        }
         self._active_lock = asyncio.Lock()
         self._cancel: dict[str, asyncio.Event] = {}
         self._pause: dict[str, asyncio.Event] = {}
@@ -113,8 +117,21 @@ class Agent:
                         raise RuntimeError(f"UI target disappeared before action {index + 1}")
                     self.memory.write_event(Event(type="action.requested", session_id=session.id,
                                                   payload={"action": action.kind.value, "index": index}))
-                    await asyncio.wait_for(asyncio.to_thread(self.desktop.execute, action),
-                                           timeout=action.timeout_seconds)
+                    # Cancelling wait_for(to_thread(...)) does NOT stop the native
+                    # Windows operation. Retain input ownership until the worker
+                    # actually exits, including on timeout or coroutine cancellation.
+                    dispatch = asyncio.create_task(asyncio.to_thread(self.desktop.execute, action))
+                    try:
+                        await asyncio.wait_for(asyncio.shield(dispatch),
+                                               timeout=action.timeout_seconds)
+                    except (TimeoutError, asyncio.CancelledError):
+                        # A hung UIA call cannot be interrupted safely; waiting is
+                        # preferable to releasing the lock while inputs are still active.
+                        try:
+                            await asyncio.shield(dispatch)
+                        except Exception:
+                            pass
+                        raise
                     self.memory.write_event(Event(type="action.executed", session_id=session.id,
                                                   payload={"action": action.kind.value, "index": index}))
                     session = self._state(session, SessionState.VERIFYING)
