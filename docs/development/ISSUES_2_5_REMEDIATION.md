@@ -28,6 +28,7 @@ This document tracks **merged remediation from PR #6 and follow-up release harde
 - Skills must be separately reviewed, granted and approved at execution time, and executed outcomes are logged without automatically setting verification status.
 - Runtime pauses do not count as failed Skill executions: attribution survives pause/resume until a terminal state. Per-run history now retains a sanitized verified-action count and wall-clock duration (including pause time), without storing user-entered text or captured pixels.
 - Draft versions are archived with rollback and export/import. Verified revisions cannot be overwritten.
+- A CI-gated interactive Windows WinForms test performs a real native mouse click during opt-in Teach recording, confirms a structural click event and tentative UIA step, requires explicitly corrected parameterized input/outcome, then executes the stored draft through the authenticated Agent API with fresh consent and independently observes the result. This controlled test-driver demonstration does not claim automatic free-form inference or human interaction.
 - **Still limited:** free-form goal inference, generalized semantics and real cross-session Skill performance benchmarks need additional work. Raw pixels may include sensitive information even when timeline metadata is redacted.
 
 ## Issue #5 — Dependency reproducibility and scanning
