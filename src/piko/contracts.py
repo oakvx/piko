@@ -41,12 +41,12 @@ class ActionKind(StrEnum):
 class Expectation(StrictModel):
     """A directly observable UIA property, not a language-model judgement."""
     automation_id: str = Field(min_length=1, max_length=128)
-    property: Literal["exists", "text_equals", "text_contains", "enabled"]
+    property: Literal["exists", "text_equals", "text_contains", "enabled", "window_title_changed"]
     value: str | bool | None = None
 
     @model_validator(mode="after")
     def validate_value(self) -> "Expectation":
-        if self.property in {"text_equals", "text_contains"} and not isinstance(self.value, str):
+        if self.property in {"text_equals", "text_contains", "window_title_changed"} and not isinstance(self.value, str):
             raise ValueError("Text expectations require a string value")
         if self.property == "enabled" and not isinstance(self.value, bool):
             raise ValueError("Enabled expectation requires a boolean")
