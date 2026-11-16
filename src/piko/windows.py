@@ -65,6 +65,16 @@ class WindowsDesktop:
             raise DesktopUnavailable("Cannot inspect active window process") from exc
         return hwnd, pid.value, executable, title_buf.value
 
+    @staticmethod
+    def _process_started_at(pid: int) -> float:
+        """Read process creation time, not just PID (which Windows can reuse)."""
+        import psutil
+
+        try:
+            return float(psutil.Process(pid).create_time())
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            raise DesktopUnavailable("Cannot verify active process identity") from exc
+
     def _elements(self, hwnd: int) -> list[UIElement]:
         from pywinauto import Desktop
         window = Desktop(backend="uia").window(handle=hwnd)
@@ -109,7 +119,13 @@ class WindowsDesktop:
 
     def observe(self, include_image: bool = False) -> Observation:
         hwnd, pid, executable, title = self._foreground()
+        started_at = self._process_started_at(pid)
+        identity = Observation(window_title=title, executable=executable,
+                               process_id=pid, window_handle=hwnd,
+                               process_started_at=started_at, elements=[])
         elements = self._elements(hwnd)
+        # UIA enumeration can block and the user can switch windows meanwhile.
+        self._assert_active(identity)
         image_base64 = None
         capture_bounds = None
         if include_image:
@@ -118,6 +134,7 @@ class WindowsDesktop:
                 raise DesktopUnavailable("Capture blocked: window contains a password field")
             from PIL import Image
             import mss
+            self._assert_active(identity)
             bounds = wintypes.RECT()
             if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(bounds)):
                 raise DesktopUnavailable("Could not determine window bounds")
@@ -129,12 +146,17 @@ class WindowsDesktop:
             capture_bounds = (rect["left"], rect["top"], rect["width"], rect["height"])
             with mss.mss() as capture:
                 shot = capture.grab(rect)
+            # Never return/store pixels if another application came to front
+            # during a window-bounds or screenshot operation.
+            self._assert_active(identity)
             image = Image.frombytes("RGB", shot.size, shot.rgb)
             out = io.BytesIO()
             image.save(out, format="PNG")
             image_base64 = base64.b64encode(out.getvalue()).decode("ascii")
+        self._assert_active(identity)
         return Observation(window_title=title, executable=executable, process_id=pid,
-                           window_handle=hwnd, elements=elements, image_base64=image_base64,
+                           window_handle=hwnd, process_started_at=started_at,
+                           elements=elements, image_base64=image_base64,
                            capture_bounds=capture_bounds)
 
     def _target(self, automation_id: str, hwnd: int):
@@ -163,6 +185,9 @@ class WindowsDesktop:
             or executable.casefold() != expected.executable.casefold()
         ):
             raise DesktopUnavailable("Foreground window or process changed; refusing input")
+        if (expected.process_started_at is not None
+                and self._process_started_at(pid) != expected.process_started_at):
+            raise DesktopUnavailable("Foreground PID was reused; refusing input")
         return hwnd
 
     def execute(self, action: Action) -> None:
