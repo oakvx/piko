@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "piko-agent"
+version = "0.1.0a0"
+description = "Local-first, permission-gated Windows computer-use agent"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "httpx>=0.27,<1",
+  "pydantic>=2.7,<3",
+]
+
+[project.optional-dependencies]
+windows = ["pywinauto>=0.6.9,<0.7", "mss>=9,<11", "pillow>=10,<13", "pynput>=1.7,<2", "psutil>=6,<8"]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "pyyaml>=6,<7", "ruff>=0.9,<1"]
+
+[project.scripts]
+piko = "piko.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

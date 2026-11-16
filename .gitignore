@@ -1,0 +1,23 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+.venv/
+node_modules/
+dist/
+build/
+target/
+*.db
+*.db-wal
+*.db-shm
+*.log
+.env
+.DS_Store
+.piko/
+recordings/
+
+# Generated preview/build binaries must never enter source history.
+distribution/
+apps/desktop/src-tauri/binaries/*.exe
+apps/desktop/src-tauri/binaries/*.pdb
