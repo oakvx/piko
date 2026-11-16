@@ -170,7 +170,8 @@ class WindowsDesktop:
 
     def observe_window(self, hwnd: int, executable: str,
                        include_image: bool = False,
-                       expected: Observation | None = None) -> Observation:
+                       expected: Observation | None = None,
+                       window_pixels_only: bool = False) -> Observation:
         """Observe authorized window via UIA even while Piko is foreground.
 
         Pixels are captured only if this exact window is foreground. Never
@@ -182,8 +183,9 @@ class WindowsDesktop:
             expected.process_started_at if expected is not None else None,
         )
         foreground = self._foreground()[0] == hwnd
-        if include_image and foreground:
-            # Existing scoped capture guards both sides of screenshot capture.
+        if include_image and foreground and not window_pixels_only:
+            # Workfield may use the pre-existing foreground screenshot route.
+            # Coach requests HWND-only pixels to avoid overlay contamination.
             observed = self.observe(include_image=True)
             if observed.window_handle != hwnd or observed.process_id != identity["pid"]:
                 raise DesktopUnavailable("Authorized window changed during capture")
