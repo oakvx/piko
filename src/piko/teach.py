@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from piko.contracts import Observation
 from piko.platforms import Desktop
 
 
@@ -45,6 +46,7 @@ class TeachRecorder:
         self._event_capture_available = False
         self._authorized: Callable[[], None] | None = None
         self._identity: tuple[int | None, int, float | None] | None = None
+        self._approved_window: Observation | None = None
 
     async def start(self, executable: str, seconds: int = 30,
                     authorize_capture: Callable[[], None] | None = None) -> str:
@@ -70,6 +72,14 @@ class TeachRecorder:
             snapshot.window_handle, snapshot.process_id, snapshot.process_started_at,
         )
         self._authorized = authorize_capture
+        # Keep only window identity, never the observed app text/controls.
+        self._approved_window = Observation(
+            window_title="", executable=self._app,
+            process_id=snapshot.process_id,
+            window_handle=snapshot.window_handle,
+            process_started_at=snapshot.process_started_at,
+            elements=[],
+        )
         self._stop.clear()
         self._events = []
         folder = self.root / self.active_id
@@ -87,6 +97,7 @@ class TeachRecorder:
                 self.active_id = None
                 self._identity = None
                 self._authorized = None
+                self._approved_window = None
                 shutil.rmtree(folder)
                 raise TeachError(f"Cannot start scoped Teach input capture: {exc}") from exc
         self._task = asyncio.create_task(self._record(self.active_id, seconds))
@@ -162,7 +173,14 @@ class TeachRecorder:
                 try:
                     if self._authorized is not None:
                         self._authorized()
-                    observation = await asyncio.to_thread(self.desktop.observe, True)
+                    native_scoped = getattr(self.desktop, "observe_scoped", None)
+                    if native_scoped is not None and self._approved_window is not None:
+                        observation = await asyncio.to_thread(
+                            native_scoped, self._approved_window, True)
+                    else:
+                        # A synthetic/portable Desktop adapter may not expose
+                        # scoped capture; recheck identity before saving below.
+                        observation = await asyncio.to_thread(self.desktop.observe, True)
                     if self._authorized is not None:
                         self._authorized()
                     identity = (
@@ -248,6 +266,7 @@ class TeachRecorder:
             self.active_id = None
             self._identity = None
             self._authorized = None
+            self._approved_window = None
 
     async def stop(self) -> dict:
         if self._task is None:
