@@ -141,7 +141,7 @@ export default function App() {
   const [lens, setLens] = useState<Lens>('work');
   const [objective, setObjective] = useState('');
   const [executable, setExecutable] = useState('');
-  const [windowCandidates, setWindowCandidates] = useState<Array<{ window_handle: number; title: string; process_id: number }>>([]);
+  const [windowCandidates, setWindowCandidates] = useState<Array<{ window_handle: number; title: string; process_id: number; process_started_at: number }>>([]);
   const [selectedWindow, setSelectedWindow] = useState('');
   const [consent, setConsent] = useState(false);
   const [reviewed, setReviewed] = useState(false);
@@ -390,7 +390,7 @@ export default function App() {
       if (!target) throw new Error(candidates.length === 0
         ? 'No visible window matches this executable. Open it first.'
         : 'Several windows match. Select one in the target list before composing a route.');
-      const created = await client.createSession(objective.trim(), executable.trim(), target.window_handle);
+      const created = await client.createSession(objective.trim(), executable.trim(), target);
       setSession(created);
       await client.grant(created.app_executable, 'limited', created.id);
       const planned = await client.plan(created.id);
