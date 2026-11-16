@@ -27,7 +27,7 @@ jobs:
       OLLAMA_NO_CLOUD: '1'
       PIKO_REAL_OLLAMA: '1'
       PIKO_GUI_SMOKE: '1'
-      PIKO_OLLAMA_REASONING_MODEL: 'qwen2.5:1.5b'
+      PIKO_OLLAMA_REASONING_MODEL: 'qwen2.5:3b'
       PIKO_OLLAMA_VISION_MODEL: 'qwen3-vl:2b-instruct'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
