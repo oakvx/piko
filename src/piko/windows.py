@@ -118,7 +118,11 @@ class WindowsDesktop:
         result: list[dict] = []
         for hwnd in handles:
             title = ctypes.create_unicode_buffer(512)
-            if not user32.GetWindowTextW(hwnd, title, len(title)) or not title.value.strip():
+            user32.GetWindowTextW(hwnd, title, len(title))
+            bounds = wintypes.RECT()
+            if not user32.GetWindowRect(hwnd, ctypes.byref(bounds)):
+                continue
+            if bounds.right - bounds.left < 120 or bounds.bottom - bounds.top < 80:
                 continue
             pid = wintypes.DWORD(0)
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -132,7 +136,7 @@ class WindowsDesktop:
                 continue
             result.append({"window_handle": hwnd, "process_id": pid.value,
                            "process_started_at": started, "executable": name,
-                           "title": title.value[:240]})
+                           "title": (title.value[:240] or "(untitled game window)")})
         return result[:40]
 
     def _assert_window(self, hwnd: int, executable: str,
