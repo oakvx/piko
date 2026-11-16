@@ -11,7 +11,7 @@ Unrelated commits do not repeatedly download gigabytes of models.
 - Downloads the official Windows Ollama `v0.40.11` CLI archive and verifies its
   pinned SHA-256 **before extraction/execution**.
 - Starts a real local Ollama service at `127.0.0.1:11434`, with cloud inference disabled.
-- Pulls `qwen2.5:1.5b` for structured action planning and
+- Pulls `qwen2.5:3b` for structured action planning and
   `qwen3-vl:2b-instruct` for image interpretation.
 - Calls Piko's real `OllamaProvider` against the actual Ollama server. The
   model must produce a schema-valid plan that clicks the observed Save button;
