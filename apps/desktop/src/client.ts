@@ -50,6 +50,15 @@ export class PikoClient {
   session(id: string) { return this.request<Session>(`/sessions/${encodeURIComponent(id)}`); }
   events(id: string) { return this.request<AgentEvent[]>(`/sessions/${encodeURIComponent(id)}/events`); }
   skills() { return this.request<Skill[]>('/skills'); }
+  reviewSkill(slug: string) {
+    return this.request<Session>(`/skills/${encodeURIComponent(slug)}/review`, {
+      method: 'POST', body: JSON.stringify({ authorize_foreground_app: true }),
+    });
+  }
+  skillHistory(slug: string) {
+    return this.request<Array<{ session_id: string; completed: boolean; timestamp: string }>>(
+      `/skills/${encodeURIComponent(slug)}/history`);
+  }
   createSession(objective: string, executable: string) {
     return this.request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ objective, executable }) });
   }
