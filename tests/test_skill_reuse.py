@@ -1,6 +1,8 @@
 """Guarded Skill reuse, history and revision regression tests."""
 import asyncio
+import io
 import json
+import zipfile
 
 import httpx
 import pytest
@@ -106,3 +108,37 @@ def test_skill_revision_archives_and_refuses_overwrite_of_verified(tmp_path):
     metadata.write_text(json.dumps(record))
     with pytest.raises(SkillError, match="verified"):
         lib.revise_draft("save-demo", "Malicious overwrite", sample_plan())
+
+
+def test_skill_export_import_is_always_draft_and_rejects_extensions(tmp_path):
+    source = SkillLibrary(tmp_path / "source")
+    source.save_draft("save-demo", "Click save", "demo.exe", sample_plan())
+    archive = source.export_archive("save-demo")
+    destination = SkillLibrary(tmp_path / "destination")
+    imported = destination.import_archive(archive)
+    assert imported.name == "save-demo"
+    assert destination.list_skills()[0]["status"] == "draft"
+    with pytest.raises(SkillError):
+        destination.import_archive(archive)
+    malicious = io.BytesIO()
+    with zipfile.ZipFile(malicious, "w") as zip_file:
+        zip_file.writestr("metadata.json", json.dumps({
+            "name": "unsafe", "description": "bad", "executable": "demo.exe",
+            "status": "verified",
+        }))
+        zip_file.writestr("plan.json", sample_plan().model_dump_json())
+        zip_file.writestr("powershell.exe", "untrusted")
+    with pytest.raises(SkillError, match="Unexpected"):
+        destination.import_archive(malicious.getvalue())
+
+
+def test_skill_rollback_is_new_revision_and_preserves_original(tmp_path):
+    lib = SkillLibrary(tmp_path / "skills")
+    folder = lib.save_draft("save-demo", "Original description", "demo.exe", sample_plan())
+    lib.revise_draft("save-demo", "Second version", sample_plan())
+    assert lib.revisions("save-demo") == [1]
+    rolled = lib.rollback_draft("save-demo", 1)
+    assert rolled["revision"] == 3
+    assert rolled["description"] == "Original description"
+    assert lib.revisions("save-demo") == [1, 2]
+    assert (folder / "revisions/revision-2/metadata.json").exists()
