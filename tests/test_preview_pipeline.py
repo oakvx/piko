@@ -19,6 +19,14 @@ def test_preview_gating_and_release_files():
     assert "github.event.pull_request.number" in workflow["concurrency"]["group"]
     assert "github.event_name == 'pull_request'" in workflow["concurrency"]["cancel-in-progress"]
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
+    assert jobs["windows-installer-smoke"]["runs-on"] == "windows-latest"
+    assert jobs["windows-installer-smoke"]["needs"] == ["windows-installer"]
+    assert jobs["publish-preview"]["needs"] == ["windows-installer", "windows-installer-smoke"]
+    installer_smoke_steps = "\n".join(
+        step.get("run", "") for step in jobs["windows-installer-smoke"]["steps"]
+    )
+    assert "smoke-installer.ps1" in installer_smoke_steps
+    assert "checksum mismatch" in installer_smoke_steps
     assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke"]
     assert "rust-dependency-audit" in jobs
     rust_scan_steps = jobs["rust-dependency-audit"]["steps"]

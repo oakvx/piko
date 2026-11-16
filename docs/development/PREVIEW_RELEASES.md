@@ -1,6 +1,6 @@
 # Windows previews — one installer per successful main commit
 
-> **Status:** The repository `oakvx/piko` exists and GitHub Actions is active. Verify the latest workflow and Releases before claiming an installer exists. Successful compilation is not a clean Windows installation test.
+> **Status:** The repository `oakvx/piko` exists and GitHub Actions is active. Verify the latest workflow and Releases before claiming an installer exists. Successful compilation is not a clean Windows 10/11 installation test. An automated install/launch/uninstall test on the hosted Windows runner is additional evidence, not a substitute for both target OS clean-VM tests.
 
 ## Publishing contract
 
@@ -12,7 +12,8 @@ The [CI workflow](../../.github/workflows/ci.yml) runs on pushes to `main`, pull
 4. Include `piko-agent-x86_64-pc-windows-msvc.exe` in the NSIS installer via Tauri `externalBin`.
 5. Compile the desktop wrapper, verify that a real setup EXE exists, and generate SHA-256 checksums.
 6. Upload a CI artifact for any branch or PR build that succeeds.
-7. For successful `main` pushes only, publish a GitHub **prerelease** tagged `preview-<12-character-commit-SHA>` targeting that exact commit.
+7. On a GitHub-hosted Windows runner, download and checksum the produced installer, install NSIS silently for the runner's user, confirm the installed GUI executable starts its bundled Python sidecar, close the GUI, verify sidecar cleanup and uninstall. A failing lifecycle check blocks release publication.
+8. For successful `main` pushes only, publish a GitHub **prerelease** tagged `preview-<12-character-commit-SHA>` targeting that exact commit.
 
 A rerun updates assets on the same tag rather than duplicating a release. `contents: write` is scoped to the release job; other jobs are read-only. A failed build produces **no prerelease**. Workflow dispatch on `main` may republish the existing commit's assets.
 
@@ -30,7 +31,7 @@ Start Ollama if it is not running; open **System** to choose an installed reason
 
 The existing repository is [oakvx/piko](https://github.com/oakvx/piko) on `main`. Commits should be reviewed through a PR, and only validated merges on `main` trigger prerelease publication. Native input, application switching, real Ollama output, screenshot authorization and clean-install behavior still require controlled hands-on Windows verification.
 
-The temporary `npm install` steps are not reproducible: commit a reviewed lockfile and replace them with `npm ci`. Python and Rust dependencies likewise require a documented lock/update policy before a stable release.
+npm, Cargo and Windows Python packaging now consume checked-in dependency locks. GitHub Actions use pinned upstream commit references. Dependency audits are required in the CI release gate; a successful audit does not replace the clean-machine hardware validation required before a stable release.
 
 ## Before recommending distribution
 
@@ -38,7 +39,7 @@ The temporary `npm install` steps are not reproducible: commit a reviewed lockfi
 - Test the bundled PyInstaller process, Tauri IPC, local API, and close cleanup on Windows.
 - Test real Ollama inference with installed local models and desktop UI automation.
 - Add executable code signing to minimize SmartScreen warnings.
-- Generate and commit a `package-lock.json` on a network-enabled machine and replace `npm install` with `npm ci` in CI.
+- Keep npm, Cargo and Python dependency locks current through reviewed updates and CI security scans.
 - Audit packages and verify non-GPU and multi-monitor behavior.
 
 No hardware-dependent result is claimed from the authoring machine.
