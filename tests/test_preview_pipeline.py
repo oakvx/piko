@@ -16,6 +16,14 @@ def test_preview_gating_and_release_files():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     jobs = workflow["jobs"]
     assert jobs["windows-installer"]["runs-on"] == "windows-latest"
+    assert jobs["windows-installer-smoke"]["runs-on"] == "windows-latest"
+    assert jobs["windows-installer-smoke"]["needs"] == ["windows-installer"]
+    assert jobs["publish-preview"]["needs"] == ["windows-installer", "windows-installer-smoke"]
+    installer_smoke_steps = "\n".join(
+        step.get("run", "") for step in jobs["windows-installer-smoke"]["steps"]
+    )
+    assert "smoke-installer.ps1" in installer_smoke_steps
+    assert "checksum mismatch" in installer_smoke_steps
     assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke"]
     assert "rust-dependency-audit" in jobs
     assert "npm ci" in "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
