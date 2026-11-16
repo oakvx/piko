@@ -1,8 +1,6 @@
 """Negative authorization and input ownership tests runnable off Windows."""
 import threading
 
-import threading
-
 import pytest
 
 from piko.contracts import Action, Expectation, Observation, UIElement
