@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from contextlib import asynccontextmanager
 import os
 import secrets
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -40,6 +43,10 @@ class ModelSelectionRequest(BaseModel):
 class SkillRequest(BaseModel):
     slug: str
     description: str
+
+
+class SkillImportRequest(BaseModel):
+    archive_base64: str = Field(min_length=1, max_length=1_500_000)
 
 
 class SkillReviewRequest(BaseModel):
@@ -243,6 +250,39 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     @app.get("/skills", dependencies=[Depends(auth)])
     async def get_skills():
         return skills.list_skills()
+
+    @app.post("/skills/import", dependencies=[Depends(auth)])
+    async def import_skill(request: SkillImportRequest):
+        try:
+            payload = base64.b64decode(request.archive_base64, validate=True)
+            folder = skills.import_archive(payload)
+            return {"name": folder.name, "status": "draft", "verified": False}
+        except (ValueError, OSError, binascii.Error) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/skills/{slug}/export", dependencies=[Depends(auth)])
+    async def export_skill(slug: str):
+        try:
+            archive = skills.export_archive(slug)
+            return Response(archive, media_type="application/zip",
+                            headers={"Content-Disposition":
+                                     f'attachment; filename="{slug}.piko-skill.zip"'})
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/skills/{slug}/revisions", dependencies=[Depends(auth)])
+    async def skill_revisions(slug: str):
+        try:
+            return {"revisions": skills.revisions(slug)}
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/skills/{slug}/rollback/{revision}", dependencies=[Depends(auth)])
+    async def rollback_skill(slug: str, revision: int):
+        try:
+            return skills.rollback_draft(slug, revision)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/skills/{slug}/review", dependencies=[Depends(auth)])
     async def review_skill(slug: str, request: SkillReviewRequest):
