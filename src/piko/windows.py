@@ -84,9 +84,16 @@ class WindowsDesktop:
                 value = None
                 if not is_password and info.control_type in {"Edit", "Text"}:
                     try:
-                        value = el.get_value() if hasattr(el, "get_value") else el.window_text()
+                        value = el.get_value() if hasattr(el, "get_value") else None
                     except Exception:
                         value = None
+                    # Some WinForms Text/Label UIA wrappers expose an empty
+                    # ValuePattern even when their visible window text changed.
+                    if value is None or value == "":
+                        try:
+                            value = el.window_text()
+                        except Exception:
+                            value = None
                 try:
                     rect = el.rectangle()
                     bounds = (int(rect.left), int(rect.top), int(rect.right), int(rect.bottom))
