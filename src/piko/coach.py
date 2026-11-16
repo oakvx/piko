@@ -54,6 +54,16 @@ class LocalScreenCoach:
             while time.monotonic() < deadline:
                 started = time.monotonic()
                 try:
+                    # Coach is more restrictive than Workfield background
+                    # observation: sample no pixels while the game is not
+                    # actually foreground (even if HWND capture supports it).
+                    foreground = getattr(self.desktop, "is_window_foreground", None)
+                    if foreground is not None and not await asyncio.to_thread(
+                        foreground, self._approved.window_handle,
+                    ):
+                        self._state["stage"] = "waiting-for-game"
+                        await asyncio.sleep(interval)
+                        continue
                     current = await asyncio.to_thread(
                         self.desktop.observe_window,
                         self._approved.window_handle, self._approved.executable,
