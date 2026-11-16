@@ -55,6 +55,27 @@ export class PikoClient {
       method: 'POST', body: JSON.stringify({ authorize_foreground_app: true }),
     });
   }
+  async exportSkill(slug: string): Promise<Blob> {
+    const response = await fetch(`${this.origin}/skills/${encodeURIComponent(slug)}/export`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`Skill export failed: HTTP ${response.status}`);
+    return response.blob();
+  }
+  importSkill(archive_base64: string) {
+    return this.request<{ name: string; status: string }>(`/skills/import`, {
+      method: 'POST', body: JSON.stringify({ archive_base64 }),
+    });
+  }
+  skillRevisions(slug: string) {
+    return this.request<{ revisions: number[] }>(`/skills/${encodeURIComponent(slug)}/revisions`);
+  }
+  rollbackSkill(slug: string, revision: number) {
+    return this.request(`/skills/${encodeURIComponent(slug)}/rollback/${revision}`, {
+      method: 'POST',
+    });
+  }
   skillHistory(slug: string) {
     return this.request<Array<{ session_id: string; completed: boolean; timestamp: string }>>(
       `/skills/${encodeURIComponent(slug)}/history`);
