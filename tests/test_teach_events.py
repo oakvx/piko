@@ -201,7 +201,9 @@ async def test_teach_revoked_grant_stops_frames_and_rejects_future_input(tmp_pat
     desktop = EventDesktop()
     root = tmp_path / "demonstrations"
     recorder = TeachRecorder(desktop, root)
-    authorize = lambda: perms.check_observe("demo.exe", "teach")
+    def authorize():
+        perms.check_observe("demo.exe", "teach")
+
     identifier = await recorder.start("demo.exe", seconds=5, authorize_capture=authorize)
     for _ in range(120):
         if (root / identifier / "frame-0000.png").exists():
