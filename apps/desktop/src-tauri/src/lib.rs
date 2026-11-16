@@ -21,6 +21,22 @@ fn backend_config(state: tauri::State<'_, BackendState>) -> Option<BackendConfig
     state.config.clone()
 }
 
+/// Explicit, user-invoked compact always-on-top view for local game advice.
+/// Never captures the desktop or injects input; those remain in the backend.
+#[tauri::command]
+fn set_coach_overlay(window: tauri::Window, enabled: bool) -> Result<(), String> {
+    if enabled {
+        window.set_size(tauri::LogicalSize::new(420.0, 340.0))
+            .map_err(|e| e.to_string())?;
+        window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    } else {
+        window.set_always_on_top(false).map_err(|e| e.to_string())?;
+        window.set_size(tauri::LogicalSize::new(1380.0, 850.0))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -60,7 +76,7 @@ pub fn run() {
                 };
             }
         })
-        .invoke_handler(tauri::generate_handler![backend_config])
+        .invoke_handler(tauri::generate_handler![backend_config, set_coach_overlay])
         .run(tauri::generate_context!())
         .expect("Piko desktop runtime failed");
 }
