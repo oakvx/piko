@@ -92,6 +92,122 @@ class WindowsDesktop:
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
             raise DesktopUnavailable("Cannot verify active process identity") from exc
 
+    def list_windows(self, executable: str) -> list[dict]:
+        """List *top-level* windows belonging to the exact requested process.
+
+        Never guess among multiple browser windows or confuse subprocesses
+        with independent tabs. The caller must authorize the executable.
+        """
+        import psutil
+
+        requested = os.path.basename(executable).casefold()
+        if not requested.endswith(".exe") or requested != executable.casefold():
+            raise DesktopUnavailable("Select an executable basename, for example firefox.exe")
+        user32 = ctypes.windll.user32
+        handles: list[int] = []
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        @callback_type
+        def collect(hwnd, _lparam):
+            if user32.IsWindowVisible(hwnd) and user32.GetWindow(hwnd, 4) == 0:
+                handles.append(int(hwnd))
+            return True
+
+        if not user32.EnumWindows(collect, 0):
+            raise DesktopUnavailable("Unable to enumerate desktop windows")
+        result: list[dict] = []
+        for hwnd in handles:
+            title = ctypes.create_unicode_buffer(512)
+            if not user32.GetWindowTextW(hwnd, title, len(title)) or not title.value.strip():
+                continue
+            pid = wintypes.DWORD(0)
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try:
+                proc = psutil.Process(pid.value)
+                name = os.path.basename(proc.exe()).casefold()
+                if name != requested:
+                    continue
+                started = float(proc.create_time())
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                continue
+            result.append({"window_handle": hwnd, "process_id": pid.value,
+                           "process_started_at": started, "executable": name,
+                           "title": title.value[:240]})
+        return result[:40]
+
+    def _assert_window(self, hwnd: int, executable: str,
+                       process_id: int | None = None,
+                       started_at: float | None = None) -> dict:
+        """Revalidate HWND, process and process lifetime without changing focus."""
+        user32 = ctypes.windll.user32
+        if not hwnd or not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd):
+            raise DesktopUnavailable("Selected application window is no longer available")
+        pid = wintypes.DWORD(0)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        import psutil
+        try:
+            proc = psutil.Process(pid.value)
+            actual_name = os.path.basename(proc.exe()).casefold()
+            actual_start = float(proc.create_time())
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError) as exc:
+            raise DesktopUnavailable("Selected application process cannot be verified") from exc
+        if actual_name != executable.casefold() or (process_id is not None and pid.value != process_id):
+            raise DesktopUnavailable("Selected window changed process; operation refused")
+        if started_at is not None and actual_start != started_at:
+            raise DesktopUnavailable("Selected window PID was reused; operation refused")
+        title = ctypes.create_unicode_buffer(1024)
+        user32.GetWindowTextW(hwnd, title, len(title))
+        return {"pid": pid.value, "started": actual_start, "title": title.value,
+                "executable": actual_name}
+
+    def observe_window(self, hwnd: int, executable: str,
+                       include_image: bool = False,
+                       expected: Observation | None = None) -> Observation:
+        """Observe authorized window via UIA even while Piko is foreground.
+
+        Pixels are captured only if this exact window is foreground. Never
+        pretend a stale/occluded screenshot is a valid fresh observation.
+        """
+        identity = self._assert_window(
+            hwnd, executable,
+            expected.process_id if expected is not None else None,
+            expected.process_started_at if expected is not None else None,
+        )
+        foreground = self._foreground()[0] == hwnd
+        if include_image and foreground:
+            # Existing scoped capture guards both sides of screenshot capture.
+            observed = self.observe(include_image=True)
+            if observed.window_handle != hwnd or observed.process_id != identity["pid"]:
+                raise DesktopUnavailable("Authorized window changed during capture")
+            return observed
+        elements = self._elements(hwnd)
+        refreshed = self._assert_window(
+            hwnd, executable, identity["pid"], identity["started"],
+        )
+        if any(e.is_password for e in elements):
+            raise DesktopUnavailable("Sensitive password field detected; observation blocked")
+        return Observation(window_title=refreshed["title"], executable=executable.casefold(),
+                           process_id=identity["pid"], window_handle=hwnd,
+                           process_started_at=identity["started"], elements=elements)
+
+    def activate_window(self, expected: Observation) -> None:
+        """Foreground *only* the already reviewed HWND before approved input."""
+        self._assert_input_not_stopped()
+        if not expected.window_handle:
+            raise DesktopUnavailable("No reviewed Windows target to activate")
+        self._assert_window(expected.window_handle, expected.executable,
+                            expected.process_id, expected.process_started_at)
+        if self._foreground()[0] == expected.window_handle:
+            return
+        ctypes.windll.user32.SetForegroundWindow(expected.window_handle)
+        try:
+            self._assert_active(expected)
+        except DesktopUnavailable as exc:
+            raise DesktopUnavailable(
+                "Windows did not allow focusing the reviewed application. "
+                "Select its window manually and retry; no input was sent."
+            ) from exc
+
     def _elements(self, hwnd: int) -> list[UIElement]:
         from pywinauto import Desktop
         window = Desktop(backend="uia").window(handle=hwnd)
