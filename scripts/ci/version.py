@@ -22,6 +22,15 @@ def stamp(run_number: int) -> str:
     package["version"] = version
     package_path.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
 
+    # npm ci requires the package version in the lockfile to match the
+    # generated CI version; only the root package metadata is changed.
+    npm_lock_path = ROOT / "apps/desktop/package-lock.json"
+    if npm_lock_path.is_file():
+        npm_lock = json.loads(npm_lock_path.read_text(encoding="utf-8"))
+        npm_lock["version"] = version
+        npm_lock["packages"][""]["version"] = version
+        npm_lock_path.write_text(json.dumps(npm_lock, indent=2) + "\n", encoding="utf-8")
+
     config_path = ROOT / "apps/desktop/src-tauri/tauri.conf.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["version"] = version
@@ -33,6 +42,17 @@ def stamp(run_number: int) -> str:
     if count != 1:
         raise ValueError("Cargo package version not found")
     cargo_path.write_text(cargo, encoding="utf-8")
+
+    cargo_lock_path = ROOT / "apps/desktop/src-tauri/Cargo.lock"
+    if cargo_lock_path.is_file():
+        locked = cargo_lock_path.read_text(encoding="utf-8")
+        expression = (r'(?m)^(name = "piko-desktop"\\nversion = )"[^"]+"')
+        # This local package entry is the only Cargo.lock version changed.
+        locked, count = re.subn(expression, lambda m: m.group(1) + f'"{version}"',
+                                locked, count=1)
+        if count != 1:
+            raise ValueError("Cargo.lock local piko-desktop package entry not found")
+        cargo_lock_path.write_text(locked, encoding="utf-8")
     return version
 
 
