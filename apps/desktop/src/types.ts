@@ -1,5 +1,5 @@
 export type AgentState = 'idle' | 'observing' | 'analyzing' | 'planning' | 'executing' | 'verifying' | 'paused' | 'waiting_for_user' | 'completed' | 'failed' | 'cancelled';
-export type Lens = 'work' | 'teach' | 'skills' | 'system';
+export type Lens = 'work' | 'teach' | 'skills' | 'coach' | 'system';
 export type Access = 'observe' | 'limited' | 'full';
 
 export interface Expectation {
