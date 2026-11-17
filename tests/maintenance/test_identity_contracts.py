@@ -1,0 +1,11 @@
+"""Validate scoped grant identities, session targets and private observation fields."""
+
+import pytest
+from pydantic import ValidationError
+
+from piko.contracts import Grant, Observation, Session
+
+
+def test_reject_grant_with_forward_slash_path():
+    with pytest.raises(ValidationError):
+        Grant(executable="folder/demo.exe")
