@@ -63,3 +63,9 @@ def test_allow_observe_profile_to_read_but_not_click():
     permissions.check_observe("demo.exe", "session-1")
     with pytest.raises(PermissionDenied, match="Observe profile"):
         permissions.check("demo.exe", "session-1", action())
+
+
+def test_match_grants_without_case_sensitivity():
+    permissions = PermissionManager()
+    permissions.grant(Grant(executable="DEMO.EXE"))
+    permissions.check("Demo.Exe", "session-1", action())
