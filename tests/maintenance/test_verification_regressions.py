@@ -32,3 +32,8 @@ def test_reject_duplicate_ambiguous_selector():
 def test_verify_enabled_true_against_visible_element():
     ok, _ = verify(expected("enabled", True), observe(UIElement(automation_id="Status", enabled=True)))
     assert ok
+
+
+def test_verify_enabled_false_against_disabled_element():
+    ok, _ = verify(expected("enabled", False), observe(UIElement(automation_id="Status", enabled=False)))
+    assert ok
