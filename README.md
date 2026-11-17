@@ -138,6 +138,9 @@ The portable suite covers contracts, state, permissions, persisted evidence and 
 
 ## Windows installer
 
+[Weekly maintenance](docs/development/MAINTENANCE.md) runs read-only tests, documentation checks and dependency validation even when no new commit lands. It never manufactures commits or publishes releases; genuine, reviewed changes still trigger the normal preview pipeline.
+
+
 Every push and PR builds an NSIS x64 installer with the Python backend bundled. Green builds on `main` are published as prereleases with a SHA-256 checksum.
 
 Each main prerelease requires successful compilation, dependency audits, a Windows UIA smoke and a hosted-Windows NSIS install/launch/sidecar-close/uninstall smoke. These checks do not replace clean Windows 10/11 installation, upgrade, reboot and Ollama E2E validation. Check [Actions](https://github.com/oakvx/piko/actions) and [Releases](https://github.com/oakvx/piko/releases) for what exists, and [Preview releases](docs/development/PREVIEW_RELEASES.md) for how the pipeline works.
