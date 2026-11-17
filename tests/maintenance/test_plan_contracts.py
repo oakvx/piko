@@ -35,3 +35,8 @@ def test_reject_objective_over_500_characters():
 def test_reject_empty_explanation():
     with pytest.raises(ValidationError):
         make_plan(explanation="")
+
+
+def test_reject_whitespace_explanation():
+    with pytest.raises(ValidationError):
+        make_plan(explanation="   ")
