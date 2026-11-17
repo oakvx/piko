@@ -46,3 +46,9 @@ def test_refuse_parameter_longer_than_text_quota():
 def test_accept_parameter_at_text_quota_boundary():
     bound = bind_plan(template(), {"name": "x" * 1000})
     assert bound.actions[0].text == "x" * 1000
+
+
+def test_prevent_recursive_template_evaluation():
+    bound = bind_plan(template(), {"name": "{{unexpected}}"})
+    assert bound.actions[0].text == "{{unexpected}}"
+    assert bound.actions[0].expected.value == "{{unexpected}}"
