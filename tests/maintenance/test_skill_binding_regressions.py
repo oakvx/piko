@@ -59,3 +59,10 @@ def test_refuse_parameterized_execution_selector():
     plan.actions[0].automation_id = "{{destination}}"
     with pytest.raises(SkillParameterError, match="UIA targets"):
         bind_plan(plan, {"name": "Ada"})
+
+
+def test_refuse_parameterized_verification_selector():
+    plan = template()
+    plan.actions[0].expected.automation_id = "{{destination}}"
+    with pytest.raises(SkillParameterError, match="Verification targets"):
+        parameter_names(plan)
