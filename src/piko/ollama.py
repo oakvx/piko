@@ -203,13 +203,20 @@ class OllamaProvider:
             max_output_tokens=256)
         return response.summary
 
+    @staticmethod
+    def can_compile_without_vision(objective: str, executable: str) -> bool:
+        """Only a literal, explicit active-tab close needs no pixel analysis."""
+        return (
+            executable.casefold() in _BROWSER_EXES
+            and _CLOSE_ACTIVE_TAB.fullmatch(objective.strip()) is not None
+        )
+
     async def plan(self, objective: str, observation: Observation,
                    scene_summary: str | None = None) -> Plan:
         # Compile only the explicit "close active tab" intent to a typed plan.
         # Never dispatch inputs here: consent, reviewed route, exact HWND/PID
         # identity and fresh title verification remain separate strict gates.
-        if (observation.executable.casefold() in _BROWSER_EXES
-                and _CLOSE_ACTIVE_TAB.fullmatch(objective.strip())
+        if (self.can_compile_without_vision(objective, observation.executable)
                 and observation.window_title):
             from piko.contracts import Action
             return Plan(
