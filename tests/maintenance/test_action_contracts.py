@@ -28,3 +28,8 @@ def test_refuse_text_action_without_text():
 def test_refuse_empty_hotkey():
     with pytest.raises(ValidationError):
         Action(kind="keyboard.hotkey", expected=expected())
+
+
+def test_refuse_unbounded_hotkey_chord():
+    with pytest.raises(ValidationError):
+        Action(kind="keyboard.hotkey", keys=["a", "b", "c", "d"], expected=expected())
