@@ -156,3 +156,123 @@ async def test_plan_rejects_hallucinated_expectation_target():
             await provider.plan("Click Save", example_observation())
     finally:
         await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_qwen_json_generation_disables_thinking_and_uses_strict_retry():
+    malformed = '{"objective":'
+    valid = json.dumps({
+        "objective": "Save", "explanation": "Click the observed button",
+        "actions": [{"kind": "ui.click", "automation_id": "SaveButton",
+                     "expected": {"automation_id": "StatusLabel",
+                                  "property": "text_equals", "value": "Done"}}],
+    })
+    provider = OllamaProvider("qwen3:4b")
+    fake = FakeClient([malformed, valid])
+    provider.client = fake
+    try:
+        plan = await provider.plan("Click Save and verify Done", example_observation())
+        assert plan.actions[0].automation_id == "SaveButton"
+        assert len(fake.payloads) == 2
+        assert all(payload["think"] is False for payload in fake.payloads)
+        assert isinstance(fake.payloads[0]["format"], dict)
+        assert fake.payloads[1]["format"] == "json"
+        assert all(payload["stream"] is False for payload in fake.payloads)
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_firefox_tab_close_is_reviewed_typed_plan_without_model():
+    from piko.contracts import Grant
+    from piko.permissions import PermissionManager
+    from piko.verification import verify
+
+    provider = OllamaProvider("qwen3:4b")
+    fake = FakeClient([])  # Any call to Ollama would fail the test.
+    provider.client = fake
+    old = Observation(
+        executable="firefox.exe", process_id=15, window_handle=840,
+        process_started_at=123.5, window_title="Example tab — Mozilla Firefox",
+        elements=[],
+    )
+    try:
+        route = await provider.plan("chiudi la scheda", old)
+        assert not fake.payloads
+        assert len(route.actions) == 1
+        action = route.actions[0]
+        assert action.kind.value == "keyboard.hotkey"
+        assert action.keys == ["ctrl", "w"]
+        assert action.expected.automation_id == "@window"
+        assert action.expected.property == "window_title_changed"
+        assert action.expected.value == old.window_title
+        assert not verify(action.expected, old)[0]
+        assert verify(action.expected, old.model_copy(update={
+            "window_title": "New tab — Mozilla Firefox",
+        }))[0]
+
+        permissions = PermissionManager()
+        permissions.grant(Grant(executable=old.executable, session_id="reviewed"))
+        permissions.check(old.executable, "reviewed", action)
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_tab_close_intent_never_authorizes_other_apps_or_extra_instructions():
+    provider = OllamaProvider("qwen3:4b")
+    fake = FakeClient(['not-json', 'not-json', 'not-json', 'not-json'])
+    provider.client = fake
+    try:
+        notepad = Observation(
+            executable="notepad.exe", process_id=2, window_title="Notepad",
+            elements=[],
+        )
+        with pytest.raises(InferenceError, match="schema validation"):
+            await provider.plan("chiudi la scheda", notepad)
+        assert len(fake.payloads) == 2
+        firefox = notepad.model_copy(update={
+            "executable": "firefox.exe", "window_title": "Example - Firefox",
+        })
+        with pytest.raises(InferenceError, match="schema validation"):
+            await provider.plan("non chiudere la scheda", firefox)
+        assert len(fake.payloads) == 4
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_tab_close_skips_vision_capture_and_waits_for_route_review(tmp_path):
+    from piko.contracts import Grant, SessionState
+    from piko.memory import LocalMemory
+    from piko.orchestrator import Agent
+    from piko.permissions import PermissionManager
+
+    class BrowserDesktop:
+        def __init__(self):
+            self.capture_requested = False
+
+        def observe(self, include_image=False):
+            self.capture_requested |= include_image
+            return Observation(executable="firefox.exe", process_id=9,
+                               window_title="Release preview — Mozilla Firefox",
+                               elements=[])
+
+    desktop = BrowserDesktop()
+    model = OllamaProvider("qwen3:4b", vision_model="qwen3-vl:2b-instruct")
+    model.client = FakeClient([])  # Neither role may be called.
+    memory = LocalMemory(tmp_path / "safe-shortcut.db")
+    permission = PermissionManager()
+    agent = Agent(desktop, model, memory, permission, vision=model.interpret)
+    try:
+        session = agent.create("chiudi la scheda", "firefox.exe")
+        permission.grant(Grant(executable="firefox.exe", session_id=session.id))
+        prepared = await agent.prepare(session.id)
+        assert prepared.state == SessionState.WAITING_FOR_USER
+        assert prepared.plan is not None
+        assert prepared.plan.actions[0].keys == ["ctrl", "w"]
+        assert not desktop.capture_requested
+        assert not model.client.payloads
+    finally:
+        await model.close()
+        memory.close()
