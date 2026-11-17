@@ -3,8 +3,9 @@ import { invoke as tauriInvoke, isTauri } from '@tauri-apps/api/core';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { PikoClient } from './client';
 import PikoGlyph from './PikoGlyph';
+import ApplicationPicker, { suggestedApps } from './ApplicationPicker';
 import TeachStepEditor from './TeachStepEditor';
-import type { AgentEvent, AgentState, Demonstration, Health, Lens, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
+import type { AgentEvent, AgentState, ApplicationWindow, InstalledApplication, Demonstration, Health, Lens, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
 
 const stateText: Record<AgentState, string> = {
   idle: 'Ready to observe', observing: 'Reading the desktop', analyzing: 'Interpreting',
@@ -140,9 +141,12 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [lens, setLens] = useState<Lens>('work');
   const [objective, setObjective] = useState('');
-  const [executable, setExecutable] = useState('');
-  const [windowCandidates, setWindowCandidates] = useState<Array<{ window_handle: number; title: string; process_id: number; process_started_at: number }>>([]);
-  const [selectedWindow, setSelectedWindow] = useState('');
+  const [applicationWindows, setApplicationWindows] = useState<ApplicationWindow[]>([]);
+  const [installedApplications, setInstalledApplications] = useState<InstalledApplication[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<ApplicationWindow | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerFetching, setPickerFetching] = useState(false);
+  const [pickingWindow, setPickingWindow] = useState(false);
   const [consent, setConsent] = useState(false);
   const [reviewed, setReviewed] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
@@ -328,16 +332,81 @@ export default function App() {
     });
   };
 
-  const findTargetWindows = () => {
-    if (!client || !consent || !executable.trim()) return;
-    void attempt('find-windows', async () => {
-      const found = await client.windows(executable.trim());
-      setWindowCandidates(found);
-      setSelectedWindow(found.length === 1 ? String(found[0].window_handle) : '');
-      if (found.length === 0) throw new Error('No visible window for this executable. Open the app and try again.');
-      setNotice(found.length === 1 ? 'Window found. Piko can inspect it without keeping it in front.' : 'Choose the exact authorized window. Multiple windows share this executable.');
+  const refreshApplicationWindows = useCallback(async () => {
+    if (!client) return;
+    setPickerFetching(true);
+    try { setApplicationWindows(await client.windowCatalog()); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setPickerFetching(false); }
+  }, [client]);
+
+  useEffect(() => {
+    if (connected) void refreshApplicationWindows();
+  }, [connected, refreshApplicationWindows]);
+
+  const closePicker = useCallback(() => setPickerOpen(false), []);
+
+  const openApplicationPicker = () => {
+    if (!client || !connected) return;
+    setPickerOpen(true);
+    void refreshApplicationWindows();
+    void client.installedApplications().then(setInstalledApplications).catch(() => setInstalledApplications([]));
+  };
+
+  const chooseApplicationWindow = (target: ApplicationWindow) => {
+    setSelectedTarget(target);
+    setConsent(false);
+    setReviewed(false);
+    setPickerOpen(false);
+    setNotice(`Finestra selezionata: ${target.display_name} · ${target.title}`);
+  };
+
+  const launchApplication = (id: string) => {
+    if (!client) return;
+    void attempt('launch-app', async () => {
+      const result = await client.launchInstalledApp(id);
+      setNotice(`${result.name} avviata. Scegli la finestra dall'elenco quando compare.`);
+      await refreshApplicationWindows();
     });
   };
+
+  const startWindowPicking = () => {
+    if (!client) return;
+    void attempt('pick-window', async () => {
+      await client.startWindowPick();
+      setPickerOpen(false);
+      setPickingWindow(true);
+      setNotice('Mirino attivo: clicca la finestra desiderata entro 12 secondi.');
+    });
+  };
+
+  const cancelWindowPicking = () => {
+    if (!client) return;
+    void client.cancelWindowPick().finally(() => setPickingWindow(false));
+  };
+
+  useEffect(() => {
+    if (!client || !pickingWindow) return;
+    let active = true;
+    const check = () => {
+      void client.windowPickStatus().then(state => {
+        if (!active) return;
+        if (state.status === 'selected' && state.window) {
+          chooseApplicationWindow(state.window);
+          setApplicationWindows(windows => {
+            const other = windows.filter(w => w.window_handle !== state.window?.window_handle);
+            return state.window ? [state.window, ...other] : windows;
+          });
+          setPickingWindow(false);
+        } else if (state.status === 'expired' || state.status === 'cancelled') {
+          setPickingWindow(false);
+          setNotice('Selezione terminata. Puoi riaprire il selettore quando vuoi.');
+        }
+      }).catch(() => { if (active) setPickingWindow(false); });
+    };
+    const interval = window.setInterval(check, 420);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [client, pickingWindow]);
 
   useEffect(() => {
     if (!client || !connected) return;
@@ -381,21 +450,32 @@ export default function App() {
     });
   };
 
+  const suggestedExecutables = useMemo(
+    () => suggestedApps(objective, applicationWindows), [objective, applicationWindows],
+  );
+  const suggestedWindow = useMemo(() => {
+    const candidates = applicationWindows.filter(w => suggestedExecutables.includes(w.executable));
+    return candidates.length === 1 ? candidates[0] : null;
+  }, [applicationWindows, suggestedExecutables]);
+  // Matching an explicit app name does not authorize actions; the user still consents.
+  const target = selectedTarget ?? suggestedWindow;
+
   const startRoute = (event: FormEvent) => {
     event.preventDefault();
-    if (!client || !consent || !objective.trim() || !executable.trim()) return;
+    if (!client || !consent || !objective.trim() || !target) return;
     void attempt('plan', async () => {
       setFrame(null); setFocusedTarget(null); setEvents([]); setReviewed(false);
-      // Discover only the executable explicitly named and authorized by the user.
-      // Never guess which of several Firefox windows should be controlled.
-      const candidates = await client.windows(executable.trim());
-      setWindowCandidates(candidates);
-      const selected = candidates.find(w => String(w.window_handle) === selectedWindow);
-      const target = selected ?? (candidates.length === 1 ? candidates[0] : null);
-      if (!target) throw new Error(candidates.length === 0
-        ? 'No visible window matches this executable. Open it first.'
-        : 'Several windows match. Select one in the target list before composing a route.');
-      const created = await client.createSession(objective.trim(), executable.trim(), target);
+      const latest = await client.windowCatalog();
+      setApplicationWindows(latest);
+      const verified = latest.find(w => w.window_handle === target.window_handle &&
+        w.process_id === target.process_id &&
+        w.process_started_at === target.process_started_at &&
+        w.executable === target.executable);
+      if (!verified) {
+        setSelectedTarget(null); setConsent(false);
+        throw new Error('La finestra selezionata è cambiata o è stata chiusa. Sceglila di nuovo.');
+      }
+      const created = await client.createSession(objective.trim(), verified.executable, verified);
       setSession(created);
       await client.grant(created.app_executable, 'limited', created.id);
       const planned = await client.plan(created.id);
