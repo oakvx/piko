@@ -29,3 +29,8 @@ def test_reject_unrecognized_verification_property():
 def test_reject_extra_expectation_attributes():
     with pytest.raises(ValidationError):
         Expectation(automation_id="Status", property="exists", x=101)
+
+
+def test_reject_missing_text_equals_value():
+    with pytest.raises(ValidationError):
+        Expectation(automation_id="Status", property="text_equals")
