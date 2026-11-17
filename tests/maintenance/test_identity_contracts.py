@@ -14,3 +14,7 @@ def test_reject_grant_with_forward_slash_path():
 def test_reject_grant_with_backslash_path():
     with pytest.raises(ValidationError):
         Grant(executable=r"folder\demo.exe")
+
+
+def test_normalize_grant_case_for_authorization():
+    assert Grant(executable="DEMO.EXE").executable == "demo.exe"
