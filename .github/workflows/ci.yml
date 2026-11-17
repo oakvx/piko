@@ -67,6 +67,31 @@ jobs:
           PIKO_GUI_SMOKE: '1'
         run: python -m pytest -q tests/windows/
 
+  windows-onboarding-security:
+    name: Windows onboarding and Coach security (offline)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Install Windows model setup and UIA dependencies
+        run: python -m pip install -e ".[windows,dev]"
+      - name: Reject unsigned installers, foreign redirects and unauthorized Coach screenshots
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path acceptance | Out-Null
+          python -m pytest -q -ra --junitxml=acceptance/onboarding-security.xml tests/test_onboarding_security.py tests/test_local_coach_setup.py tests/test_window_selection.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: piko-onboarding-security-${{ github.run_id }}
+          path: acceptance/onboarding-security.xml
+          if-no-files-found: warn
+          retention-days: 30
+
   frontend:
     name: TypeScript and Vite
     runs-on: ubuntu-latest
@@ -92,7 +117,7 @@ jobs:
   windows-installer:
     name: Build packaged Windows x64 installer
     runs-on: windows-latest
-    needs: [python, frontend, python-dependency-audit, rust-dependency-audit, windows-gui-smoke]
+    needs: [python, frontend, python-dependency-audit, rust-dependency-audit, windows-gui-smoke, windows-onboarding-security]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
