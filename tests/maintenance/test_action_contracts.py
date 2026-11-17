@@ -23,3 +23,8 @@ def test_refuse_text_action_without_control_id():
 def test_refuse_text_action_without_text():
     with pytest.raises(ValidationError):
         Action(kind="ui.set_text", automation_id="Name", expected=expected())
+
+
+def test_refuse_empty_hotkey():
+    with pytest.raises(ValidationError):
+        Action(kind="keyboard.hotkey", expected=expected())
