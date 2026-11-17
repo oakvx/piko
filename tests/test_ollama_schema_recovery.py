@@ -239,3 +239,40 @@ async def test_tab_close_intent_never_authorizes_other_apps_or_extra_instruction
         assert len(fake.payloads) == 4
     finally:
         await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_tab_close_skips_vision_capture_and_waits_for_route_review(tmp_path):
+    from piko.contracts import Grant, SessionState
+    from piko.memory import LocalMemory
+    from piko.orchestrator import Agent
+    from piko.permissions import PermissionManager
+
+    class BrowserDesktop:
+        def __init__(self):
+            self.capture_requested = False
+
+        def observe(self, include_image=False):
+            self.capture_requested |= include_image
+            return Observation(executable="firefox.exe", process_id=9,
+                               window_title="Release preview — Mozilla Firefox",
+                               elements=[])
+
+    desktop = BrowserDesktop()
+    model = OllamaProvider("qwen3:4b", vision_model="qwen3-vl:2b-instruct")
+    model.client = FakeClient([])  # Neither role may be called.
+    memory = LocalMemory(tmp_path / "safe-shortcut.db")
+    permission = PermissionManager()
+    agent = Agent(desktop, model, memory, permission, vision=model.interpret)
+    try:
+        session = agent.create("chiudi la scheda", "firefox.exe")
+        permission.grant(Grant(executable="firefox.exe", session_id=session.id))
+        prepared = await agent.prepare(session.id)
+        assert prepared.state == SessionState.WAITING_FOR_USER
+        assert prepared.plan is not None
+        assert prepared.plan.actions[0].keys == ["ctrl", "w"]
+        assert not desktop.capture_requested
+        assert not model.client.payloads
+    finally:
+        await model.close()
+        memory.close()
