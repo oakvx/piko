@@ -16,3 +16,7 @@ def test_show_localized_notepad_name():
 
 def test_present_unrecognized_executable_humanely():
     assert display_name("household_tool.exe") == "Household Tool"
+
+
+def test_normalize_known_executable_case_for_display():
+    assert display_name("FIREFOX.EXE") == "Firefox"
