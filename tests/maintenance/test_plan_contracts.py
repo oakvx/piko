@@ -50,3 +50,8 @@ def test_reject_explanation_over_2000_characters():
 def test_reject_plan_without_actions():
     with pytest.raises(ValidationError):
         make_plan(actions=[])
+
+
+def test_reject_plan_above_action_limit():
+    with pytest.raises(ValidationError):
+        make_plan(actions=[click() for _ in range(13)])
