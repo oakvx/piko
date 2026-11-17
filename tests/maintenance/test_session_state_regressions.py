@@ -45,3 +45,8 @@ def test_allow_verified_completion():
 def test_prevent_skipping_review_from_idle():
     with pytest.raises(InvalidTransition):
         transition(in_state(SessionState.IDLE), SessionState.COMPLETED)
+
+
+def test_prevent_restarting_completed_session():
+    with pytest.raises(InvalidTransition):
+        transition(in_state(SessionState.COMPLETED), SessionState.OBSERVING)
