@@ -49,3 +49,7 @@ def test_reject_boolean_window_title_reference():
 def test_reject_missing_enabled_expectation_flag():
     with pytest.raises(ValidationError):
         Expectation(automation_id="Save", property="enabled")
+
+
+def test_retain_explicit_false_enabled_state():
+    assert Expectation(automation_id="Save", property="enabled", value=False).value is False
