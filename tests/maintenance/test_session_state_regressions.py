@@ -32,3 +32,7 @@ def test_require_user_review_after_planning():
 
 def test_allow_explicit_execution_after_review():
     assert transition(in_state(SessionState.WAITING_FOR_USER), SessionState.EXECUTING).state == SessionState.EXECUTING
+
+
+def test_allow_pause_during_execution():
+    assert transition(in_state(SessionState.EXECUTING), SessionState.PAUSED).state == SessionState.PAUSED
