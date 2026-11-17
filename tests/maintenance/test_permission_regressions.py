@@ -69,3 +69,9 @@ def test_match_grants_without_case_sensitivity():
     permissions = PermissionManager()
     permissions.grant(Grant(executable="DEMO.EXE"))
     permissions.check("Demo.Exe", "session-1", action())
+
+
+def test_allow_case_normalized_safe_browser_hotkey():
+    permissions = PermissionManager()
+    permissions.grant(Grant(executable="demo.exe"))
+    permissions.check("demo.exe", "session-1", action("keyboard.hotkey", ["CTRL", "W"]))
