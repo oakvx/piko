@@ -49,3 +49,10 @@ def test_issue_distinct_session_ids():
     first = Session(objective="A", app_executable="demo.exe")
     second = Session(objective="B", app_executable="demo.exe")
     assert first.id and second.id and first.id != second.id
+
+
+def test_exclude_observation_pixels_from_model_dump():
+    observation = Observation(window_title="Test", executable="demo.exe",
+                              process_id=1, elements=[], image_base64="private-screen-pixels")
+    assert "image_base64" not in observation.model_dump()
+    assert "private-screen-pixels" not in observation.model_dump_json()
