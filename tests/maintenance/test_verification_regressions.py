@@ -57,3 +57,9 @@ def test_compare_exact_accessible_name():
 def test_match_substring_in_accessible_name_when_value_empty():
     el = UIElement(automation_id="Status", name="Saved successfully", value="")
     assert verify(expected("text_contains", "success"), observe(el))[0]
+
+
+def test_compare_window_title_reference_without_uia_target():
+    before = expected("window_title_changed", "Original", target="@window")
+    assert verify(before, observe(title="Updated"))[0]
+    assert not verify(before, observe(title="Original"))[0]
