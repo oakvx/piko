@@ -21,3 +21,8 @@ def test_sort_and_deduplicate_template_parameter_names():
 
 def test_leave_plain_text_skill_without_parameters():
     assert parameter_names(template(text="Ada", expectation="Ada")) == []
+
+
+def test_refuse_missing_required_template_input():
+    with pytest.raises(SkillParameterError, match="missing"):
+        bind_plan(template(), {})
