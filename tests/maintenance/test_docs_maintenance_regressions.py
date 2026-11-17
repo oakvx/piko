@@ -47,3 +47,8 @@ def test_decode_percent_encoded_local_target(tmp_path):
 def test_detect_broken_readme_reference(tmp_path):
     page(tmp_path, "[Guide](docs/nope.md)")
     assert check_links(tmp_path) == ["README.md:1: broken local link: docs/nope.md"]
+
+
+def test_detect_missing_html_image_resource(tmp_path):
+    page(tmp_path, '<img src="docs/missing.png">')
+    assert check_links(tmp_path) == ["README.md:1: broken local link: docs/missing.png"]
