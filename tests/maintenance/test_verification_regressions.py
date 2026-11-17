@@ -16,3 +16,8 @@ def expected(property="exists", value=None, target="Status"):
 def test_verify_single_existing_element():
     ok, reason = verify(expected(), observe(UIElement(automation_id="Status")))
     assert ok and reason == "UI element observed"
+
+
+def test_reject_unobserved_selector():
+    ok, reason = verify(expected(), observe(UIElement(automation_id="Other")))
+    assert not ok and "unavailable" in reason
