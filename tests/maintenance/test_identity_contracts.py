@@ -28,3 +28,8 @@ def test_reject_grant_without_app_identity():
 def test_reject_zero_native_window_handle():
     with pytest.raises(ValidationError):
         Session(objective="Inspect", app_executable="demo.exe", target_window_handle=0)
+
+
+def test_reject_zero_native_process_id():
+    with pytest.raises(ValidationError):
+        Session(objective="Inspect", app_executable="demo.exe", target_process_id=0)
