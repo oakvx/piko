@@ -15,3 +15,9 @@ def test_accept_valid_local_document_reference(tmp_path):
     page(tmp_path, "[Guide](docs/guide.md)")
     page(tmp_path, "# Detail", filename="docs/guide.md")
     assert check_links(tmp_path) == []
+
+
+def test_accept_valid_parent_directory_reference(tmp_path):
+    page(tmp_path, "[Home](../README.md)", filename="docs/guide.md")
+    page(tmp_path, "# Home")
+    assert check_links(tmp_path) == []
