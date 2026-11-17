@@ -27,3 +27,8 @@ def test_reject_duplicate_ambiguous_selector():
     elements = [UIElement(automation_id="Status"), UIElement(automation_id="Status")]
     ok, reason = verify(expected(), observe(*elements))
     assert not ok and "2 matches" in reason
+
+
+def test_verify_enabled_true_against_visible_element():
+    ok, _ = verify(expected("enabled", True), observe(UIElement(automation_id="Status", enabled=True)))
+    assert ok
