@@ -9,3 +9,8 @@ from piko.contracts import Expectation
 def test_reject_empty_uia_target():
     with pytest.raises(ValidationError):
         Expectation(automation_id="", property="exists")
+
+
+def test_reject_blank_uia_target_after_normalization():
+    with pytest.raises(ValidationError):
+        Expectation(automation_id="   ", property="exists")
