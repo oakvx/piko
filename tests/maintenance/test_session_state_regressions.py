@@ -16,3 +16,7 @@ def test_allow_initial_observation():
 
 def test_allow_cancel_before_first_action():
     assert transition(in_state(SessionState.IDLE), SessionState.CANCELLED).state == SessionState.CANCELLED
+
+
+def test_allow_observation_to_analysis():
+    assert transition(in_state(SessionState.OBSERVING), SessionState.ANALYZING).state == SessionState.ANALYZING
