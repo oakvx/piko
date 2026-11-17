@@ -41,3 +41,8 @@ def test_refuse_non_string_user_substitution():
 def test_refuse_parameter_longer_than_text_quota():
     with pytest.raises(SkillParameterError, match="Invalid text value"):
         bind_plan(template(), {"name": "x" * 1001})
+
+
+def test_accept_parameter_at_text_quota_boundary():
+    bound = bind_plan(template(), {"name": "x" * 1000})
+    assert bound.actions[0].text == "x" * 1000
