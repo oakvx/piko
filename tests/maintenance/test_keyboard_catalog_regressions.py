@@ -41,3 +41,11 @@ def test_reject_duplicate_keyboard_chord_without_input():
     with pytest.raises(ValueError, match="Invalid keyboard chord"):
         keyboard.chord((17, 17), lambda: None)
     assert events == []
+
+
+def test_reject_empty_keyboard_chord_without_input():
+    events = []
+    keyboard = OwnedKeyboard(lambda key, down: events.append((key, down)), lambda key: False)
+    with pytest.raises(ValueError, match="Invalid keyboard chord"):
+        keyboard.chord((), lambda: None)
+    assert events == []
