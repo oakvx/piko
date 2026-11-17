@@ -25,3 +25,11 @@ def test_normalize_known_executable_case_for_display():
 def test_bound_display_label_length():
     label = display_name("a" * 100 + ".exe")
     assert len(label) <= 70
+
+
+def test_release_injected_chord_in_reverse_order():
+    events = []
+    keyboard = OwnedKeyboard(lambda key, down: events.append((key, down)), lambda key: False)
+    keyboard.begin_session()
+    keyboard.chord((17, 87), lambda: None)
+    assert events == [(17, True), (87, True), (87, False), (17, False)]
