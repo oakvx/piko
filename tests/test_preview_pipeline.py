@@ -24,6 +24,13 @@ def test_preview_gating_and_release_files():
     assert "python -m pytest -q tests/windows" in windows_gui_runs
     assert (ROOT / "tests/windows/test_real_skill_cycle.py").is_file()
     assert (ROOT / "tests/windows/test_real_teach_skill.py").is_file()
+    assert jobs["windows-onboarding-security"]["runs-on"] == "windows-latest"
+    onboarding_steps = "\\n".join(
+        step.get("run", "") for step in jobs["windows-onboarding-security"]["steps"]
+    )
+    assert "tests/test_onboarding_security.py" in onboarding_steps
+    assert "tests/test_local_coach_setup.py" in onboarding_steps
+    assert "--junitxml=acceptance/onboarding-security.xml" in onboarding_steps
     assert jobs["windows-installer-smoke"]["runs-on"] == "windows-latest"
     assert jobs["windows-installer-smoke"]["needs"] == ["windows-installer"]
     assert jobs["publish-preview"]["needs"] == ["windows-installer", "windows-installer-smoke", "sbom"]
@@ -40,7 +47,7 @@ def test_preview_gating_and_release_files():
     )
     assert "smoke-installer.ps1" in installer_smoke_steps
     assert "checksum mismatch" in installer_smoke_steps
-    assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke"]
+    assert jobs["windows-installer"]["needs"] == ["python", "frontend", "python-dependency-audit", "rust-dependency-audit", "windows-gui-smoke", "windows-onboarding-security"]
     assert "rust-dependency-audit" in jobs
     rust_scan_steps = jobs["rust-dependency-audit"]["steps"]
     rust_scan = "\n".join(step.get("run", "") for step in rust_scan_steps)
