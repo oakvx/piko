@@ -125,6 +125,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     skills = SkillLibrary(base_root / "skills")
     teach = TeachRecorder(desktop, base_root / "demonstrations")
     running: dict[str, asyncio.Task] = {}
+    planning: dict[str, asyncio.Task] = {}
     skill_runs: dict[str, str] = {}
 
     async def run_and_record(session_id: str):
@@ -163,6 +164,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
         await coach.stop()
         if teach.active_id is not None:
             await teach.stop()
+        await asyncio.gather(*planning.values(), return_exceptions=True)
         await asyncio.gather(*running.values(), return_exceptions=True)
         await inference.close()
         store.close()
@@ -348,6 +350,36 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
                                 allow_activate=request.allow_activate)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/sessions/{sid}/plan/start", status_code=202,
+              dependencies=[Depends(auth)])
+    async def start_plan_session(sid: str):
+        """Immediately acknowledge a long local inference job.
+
+        Avoid holding a UI HTTP request open through slow model loading or
+        schema retries. State and sanitized error are available through the
+        existing authenticated GET /sessions/{sid}; this route never dispatches
+        mouse or keyboard input.
+        """
+        session = find(sid)
+        if session.state != SessionState.IDLE:
+            raise HTTPException(status_code=409, detail="A fresh idle session is required")
+        if any(not job.done() for job in planning.values()):
+            raise HTTPException(status_code=409, detail="Another local model is planning")
+        if any(not job.done() for job in running.values()):
+            raise HTTPException(status_code=409, detail="Desktop execution already in progress")
+        async def prepare_in_background() -> None:
+            try:
+                await agent.prepare(sid)
+            except Exception:
+                # Agent.prepare persists FAILED with a sanitized explanation.
+                # Never leak raw model-generated text in a task traceback.
+                pass
+
+        job = asyncio.create_task(prepare_in_background())
+        planning[sid] = job
+        job.add_done_callback(lambda _: planning.pop(sid, None))
+        return {"accepted": True, "session_id": sid}
 
     @app.post("/sessions/{sid}/plan", dependencies=[Depends(auth)])
     async def plan_session(sid: str):
