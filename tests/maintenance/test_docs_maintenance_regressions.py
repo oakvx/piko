@@ -26,3 +26,8 @@ def test_accept_valid_parent_directory_reference(tmp_path):
 def test_ignore_external_https_dependency(tmp_path):
     page(tmp_path, "[External](https://example.org/guide)")
     assert check_links(tmp_path) == []
+
+
+def test_ignore_mailto_documentation_reference(tmp_path):
+    page(tmp_path, "[Contact](mailto:maintainer@example.org)")
+    assert check_links(tmp_path) == []
