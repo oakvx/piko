@@ -9,3 +9,8 @@ from piko.contracts import Grant, Observation, Session
 def test_reject_grant_with_forward_slash_path():
     with pytest.raises(ValidationError):
         Grant(executable="folder/demo.exe")
+
+
+def test_reject_grant_with_backslash_path():
+    with pytest.raises(ValidationError):
+        Grant(executable=r"folder\demo.exe")
