@@ -21,3 +21,9 @@ def test_verify_single_existing_element():
 def test_reject_unobserved_selector():
     ok, reason = verify(expected(), observe(UIElement(automation_id="Other")))
     assert not ok and "unavailable" in reason
+
+
+def test_reject_duplicate_ambiguous_selector():
+    elements = [UIElement(automation_id="Status"), UIElement(automation_id="Status")]
+    ok, reason = verify(expected(), observe(*elements))
+    assert not ok and "2 matches" in reason
