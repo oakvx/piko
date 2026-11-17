@@ -59,3 +59,12 @@ def test_block_new_chord_after_emergency_stop():
     with pytest.raises(InputStopped, match="Emergency stop"):
         keyboard.chord((17,), lambda: None)
     assert events == []
+
+
+def test_never_release_physical_key_owned_by_user():
+    events = []
+    keyboard = OwnedKeyboard(lambda key, down: events.append((key, down)), lambda key: key == 17)
+    keyboard.begin_session()
+    with pytest.raises(InputStopped, match="held by the user"):
+        keyboard.chord((17, 87), lambda: None)
+    assert events == []
