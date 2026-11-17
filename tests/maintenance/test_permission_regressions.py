@@ -27,3 +27,9 @@ def test_deny_execution_without_explicit_grant():
     permissions = PermissionManager()
     with pytest.raises(PermissionDenied):
         permissions.check("demo.exe", "session-1", action())
+
+
+def test_accept_observation_for_matching_session():
+    permissions = PermissionManager()
+    permissions.grant(Grant(executable="demo.exe", session_id="session-1"))
+    permissions.check_observe("demo.exe", "session-1")
