@@ -33,3 +33,11 @@ def test_release_injected_chord_in_reverse_order():
     keyboard.begin_session()
     keyboard.chord((17, 87), lambda: None)
     assert events == [(17, True), (87, True), (87, False), (17, False)]
+
+
+def test_reject_duplicate_keyboard_chord_without_input():
+    events = []
+    keyboard = OwnedKeyboard(lambda key, down: events.append((key, down)), lambda key: False)
+    with pytest.raises(ValueError, match="Invalid keyboard chord"):
+        keyboard.chord((17, 17), lambda: None)
+    assert events == []
