@@ -23,3 +23,8 @@ def test_normalize_grant_case_for_authorization():
 def test_reject_grant_without_app_identity():
     with pytest.raises(ValidationError):
         Grant(executable="")
+
+
+def test_reject_zero_native_window_handle():
+    with pytest.raises(ValidationError):
+        Session(objective="Inspect", app_executable="demo.exe", target_window_handle=0)
