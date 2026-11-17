@@ -52,3 +52,10 @@ def test_prevent_recursive_template_evaluation():
     bound = bind_plan(template(), {"name": "{{unexpected}}"})
     assert bound.actions[0].text == "{{unexpected}}"
     assert bound.actions[0].expected.value == "{{unexpected}}"
+
+
+def test_refuse_parameterized_execution_selector():
+    plan = template()
+    plan.actions[0].automation_id = "{{destination}}"
+    with pytest.raises(SkillParameterError, match="UIA targets"):
+        bind_plan(plan, {"name": "Ada"})
