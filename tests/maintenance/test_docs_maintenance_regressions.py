@@ -31,3 +31,8 @@ def test_ignore_external_https_dependency(tmp_path):
 def test_ignore_mailto_documentation_reference(tmp_path):
     page(tmp_path, "[Contact](mailto:maintainer@example.org)")
     assert check_links(tmp_path) == []
+
+
+def test_ignore_fragment_only_navigation_reference(tmp_path):
+    page(tmp_path, "# Setup\n[Setup](#setup)\n")
+    assert check_links(tmp_path) == []
