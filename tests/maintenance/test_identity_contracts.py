@@ -38,3 +38,8 @@ def test_reject_zero_native_process_id():
 def test_reject_negative_process_start_time():
     with pytest.raises(ValidationError):
         Session(objective="Inspect", app_executable="demo.exe", target_process_started_at=-1.0)
+
+
+def test_reject_extra_session_privileges():
+    with pytest.raises(ValidationError):
+        Session(objective="Inspect", app_executable="demo.exe", allow_background_stream=True)
