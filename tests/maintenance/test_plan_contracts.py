@@ -60,3 +60,8 @@ def test_reject_plan_above_action_limit():
 def test_reject_unreviewed_extra_plan_metadata():
     with pytest.raises(ValidationError):
         make_plan(autorun=True)
+
+
+def test_accept_exactly_twelve_reviewable_actions():
+    plan = make_plan(actions=[click() for _ in range(12)])
+    assert len(plan.actions) == 12
