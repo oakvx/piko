@@ -55,3 +55,11 @@ def test_accept_observation_before_grant_expiry():
     expiry = datetime.now(timezone.utc) + timedelta(days=1)
     permissions.grant(Grant(executable="demo.exe", expires_at=expiry))
     permissions.check_observe("demo.exe", "session-1")
+
+
+def test_allow_observe_profile_to_read_but_not_click():
+    permissions = PermissionManager()
+    permissions.grant(Grant(executable="demo.exe", profile="observe"))
+    permissions.check_observe("demo.exe", "session-1")
+    with pytest.raises(PermissionDenied, match="Observe profile"):
+        permissions.check("demo.exe", "session-1", action())
