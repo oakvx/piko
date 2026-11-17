@@ -40,3 +40,11 @@ def test_deny_grant_from_different_session():
     permissions.grant(Grant(executable="demo.exe", session_id="session-1"))
     with pytest.raises(PermissionDenied, match="different session"):
         permissions.check_observe("demo.exe", "session-2")
+
+
+def test_deny_grant_expired_before_execution():
+    permissions = PermissionManager()
+    expiry = datetime.now(timezone.utc) - timedelta(seconds=1)
+    permissions.grant(Grant(executable="demo.exe", expires_at=expiry))
+    with pytest.raises(PermissionDenied, match="expired"):
+        permissions.check("demo.exe", "session-1", action())
