@@ -92,3 +92,24 @@ export interface TeachAnalysis {
   observed_targets: Array<{ automation_id: string; control_type: string }>;
   uncertainties: string[];
 }
+
+/** A read-only task-window snapshot. Input authorization uses every identity field. */
+export interface ApplicationWindow {
+  window_handle: number;
+  process_id: number;
+  process_started_at: number;
+  executable: string;
+  display_name: string;
+  title: string;
+  is_foreground: boolean;
+}
+
+export interface InstalledApplication {
+  id: string;
+  name: string;
+}
+
+export interface WindowPickState {
+  status: 'idle' | 'listening' | 'selected' | 'expired' | 'cancelled';
+  window: ApplicationWindow | null;
+}
