@@ -52,3 +52,8 @@ def test_compare_exact_uia_value():
 def test_compare_exact_accessible_name():
     el = UIElement(automation_id="Status", name="Saved", value="Pending")
     assert verify(expected("text_equals", "Saved"), observe(el))[0]
+
+
+def test_match_substring_in_accessible_name_when_value_empty():
+    el = UIElement(automation_id="Status", name="Saved successfully", value="")
+    assert verify(expected("text_contains", "success"), observe(el))[0]
