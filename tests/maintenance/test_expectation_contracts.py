@@ -39,3 +39,8 @@ def test_reject_missing_text_equals_value():
 def test_reject_missing_text_contains_value():
     with pytest.raises(ValidationError):
         Expectation(automation_id="Status", property="text_contains")
+
+
+def test_reject_boolean_window_title_reference():
+    with pytest.raises(ValidationError):
+        Expectation(automation_id="@window", property="window_title_changed", value=True)
