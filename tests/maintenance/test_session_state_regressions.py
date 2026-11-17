@@ -36,3 +36,7 @@ def test_allow_explicit_execution_after_review():
 
 def test_allow_pause_during_execution():
     assert transition(in_state(SessionState.EXECUTING), SessionState.PAUSED).state == SessionState.PAUSED
+
+
+def test_allow_verified_completion():
+    assert transition(in_state(SessionState.VERIFYING), SessionState.COMPLETED).state == SessionState.COMPLETED
