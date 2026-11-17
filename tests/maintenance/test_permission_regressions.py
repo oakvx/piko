@@ -48,3 +48,10 @@ def test_deny_grant_expired_before_execution():
     permissions.grant(Grant(executable="demo.exe", expires_at=expiry))
     with pytest.raises(PermissionDenied, match="expired"):
         permissions.check("demo.exe", "session-1", action())
+
+
+def test_accept_observation_before_grant_expiry():
+    permissions = PermissionManager()
+    expiry = datetime.now(timezone.utc) + timedelta(days=1)
+    permissions.grant(Grant(executable="demo.exe", expires_at=expiry))
+    permissions.check_observe("demo.exe", "session-1")
