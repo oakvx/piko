@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -108,7 +109,7 @@ def test_start_menu_app_ids_are_opaque_and_launch_requires_known_id(monkeypatch,
     (root / "Uninstall Something.lnk").write_bytes(b"blocked")
     monkeypatch.setattr(app_catalog, "_start_menu_roots", lambda: (root,))
     launched = []
-    monkeypatch.setattr(app_catalog.sys, "platform", "win32")
+    monkeypatch.setattr(app_catalog, "sys", SimpleNamespace(platform="win32"))
     monkeypatch.setattr(app_catalog.os, "startfile", lambda path, verb: launched.append((path, verb)), raising=False)
     apps = app_catalog.list_installed_apps()
     assert len(apps) == 1
