@@ -43,3 +43,9 @@ def test_reject_negative_process_start_time():
 def test_reject_extra_session_privileges():
     with pytest.raises(ValidationError):
         Session(objective="Inspect", app_executable="demo.exe", allow_background_stream=True)
+
+
+def test_issue_distinct_session_ids():
+    first = Session(objective="A", app_executable="demo.exe")
+    second = Session(objective="B", app_executable="demo.exe")
+    assert first.id and second.id and first.id != second.id
