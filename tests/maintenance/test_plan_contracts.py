@@ -55,3 +55,8 @@ def test_reject_plan_without_actions():
 def test_reject_plan_above_action_limit():
     with pytest.raises(ValidationError):
         make_plan(actions=[click() for _ in range(13)])
+
+
+def test_reject_unreviewed_extra_plan_metadata():
+    with pytest.raises(ValidationError):
+        make_plan(autorun=True)
