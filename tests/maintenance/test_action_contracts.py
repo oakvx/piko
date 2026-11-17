@@ -13,3 +13,8 @@ def expected():
 def test_refuse_click_without_control_id():
     with pytest.raises(ValidationError):
         Action(kind="ui.click", expected=expected())
+
+
+def test_refuse_text_action_without_control_id():
+    with pytest.raises(ValidationError):
+        Action(kind="ui.set_text", text="Ada", expected=expected())
