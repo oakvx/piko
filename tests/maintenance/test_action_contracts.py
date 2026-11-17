@@ -43,3 +43,8 @@ def test_refuse_click_with_keyboard_side_effect():
 def test_refuse_wait_with_text_side_effect():
     with pytest.raises(ValidationError):
         Action(kind="wait.condition", text="unexpected", expected=expected())
+
+
+def test_refuse_timeout_below_lower_bound():
+    with pytest.raises(ValidationError):
+        Action(kind="wait.condition", timeout_seconds=0.09, expected=expected())
