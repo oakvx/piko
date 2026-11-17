@@ -32,6 +32,9 @@ export class PikoClient {
       }
       return response.json() as Promise<T>;
     } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error('La richiesta locale ha superato il tempo massimo. Controlla lo stato della sessione prima di riprovare.');
+      }
       if (error instanceof TypeError) throw new Error(`Cannot reach the Piko backend at ${this.origin}.`);
       throw error;
     } finally {
@@ -137,7 +140,28 @@ export class PikoClient {
     return this.request('/permissions', { method: 'POST', body: JSON.stringify({ executable, profile, session_id }) });
   }
   revoke(executable: string) { return this.request(`/permissions/${encodeURIComponent(executable)}`, { method: 'DELETE' }); }
-  plan(id: string) { return this.request<Session>(`/sessions/${id}/plan`, { method: 'POST' }); }
+  async plan(id: string): Promise<Session> {
+    // Local inference can take minutes on a CPU. A short API acknowledgement
+    // plus status polling avoids AbortController terminating a slow plan.
+    // No input is dispatched until the user reviews the completed route.
+    await this.request<{ accepted: boolean }>(
+      `/sessions/${encodeURIComponent(id)}/plan/start`, { method: 'POST' },
+    );
+    const deadline = Date.now() + 480_000;
+    while (Date.now() < deadline) {
+      await new Promise<void>(resolve => window.setTimeout(resolve, 1500));
+      const current = await this.session(id);
+      if (current.state === 'waiting_for_user') return current;
+      if (current.state === 'failed' || current.state === 'cancelled') {
+        throw new Error(current.error ||
+          'La pianificazione locale non è riuscita. Nessuna azione è stata eseguita.');
+      }
+      if (current.state === 'executing' || current.state === 'completed') {
+        throw new Error('La sessione è già stata eseguita senza una nuova approvazione.');
+      }
+    }
+    throw new Error('Il modello locale sta impiegando troppo tempo. La pianificazione potrebbe essere ancora in corso: controlla la sessione prima di riprovare.');
+  }
   execute(id: string) { return this.request(`/sessions/${id}/execute`, { method: 'POST' }); }
   pause(id: string) { return this.request(`/sessions/${id}/pause`, { method: 'POST' }); }
   resume(id: string) { return this.request(`/sessions/${id}/resume`, { method: 'POST' }); }
