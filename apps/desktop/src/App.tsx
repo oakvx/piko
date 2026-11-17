@@ -681,9 +681,20 @@ export default function App() {
             <form onSubmit={startRoute} className="intent-form">
               <label htmlFor="objective">What should Piko accomplish?</label>
               <textarea id="objective" rows={4} maxLength={500} value={objective} onChange={e => setObjective(e.target.value)} placeholder="For example: enter a name in the demo app, save it and confirm the result." disabled={isBlockedByWork} required />
-              <div className="intent-target"><label htmlFor="executable">Inside this application</label><div className="target-field"><span className="target-bullet" /><input id="executable" placeholder="application.exe" value={executable} onChange={e => { setExecutable(e.target.value); setConsent(false); setWindowCandidates([]); setSelectedWindow(''); }} disabled={isBlockedByWork} required /></div><small>Any open window · exact executable name (e.g. firefox.exe)</small><button type="button" className="target-discover" onClick={findTargetWindows} disabled={!consent || !executable.trim() || isBlockedByWork}>Find application windows</button>{windowCandidates.length > 0 && <select className="target-picker" aria-label="Authorized application window" value={selectedWindow} onChange={e => setSelectedWindow(e.target.value)} disabled={isBlockedByWork}><option value="">{windowCandidates.length > 1 ? 'Select the correct window' : 'Auto-selected window'}</option>{windowCandidates.map(item => <option key={item.window_handle} value={item.window_handle}>{item.title || item.process_id} · PID {item.process_id}</option>)}</select>}</div>
+              <div className="intent-target"><label htmlFor="choose-application">In quale applicazione?</label>
+                <button type="button" id="choose-application" className="visual-target-button" onClick={openApplicationPicker} disabled={isBlockedByWork}>
+                  <span className="visual-target-icon" aria-hidden="true">{target ? target.display_name.slice(0, 1).toUpperCase() : '⊞'}</span>
+                  <span className="visual-target-description"><strong>{target ? target.display_name : 'Scegli un’applicazione'}</strong>
+                    <small>{target ? target.title : 'Mostra le finestre aperte · non serve conoscere il file .exe'}</small></span>
+                  <span className="visual-target-action" aria-hidden="true">{target ? 'Cambia ↗' : 'Sfoglia →'}</span>
+                </button>
+                {!selectedTarget && suggestedExecutables.length === 1 && applicationWindows.filter(w => w.executable === suggestedExecutables[0]).length > 1 &&
+                  <p className="target-suggested">Ho trovato più finestre di {applicationWindows.find(w => w.executable === suggestedExecutables[0])?.display_name}. Scegli quella corretta.</p>}
+                {!selectedTarget && suggestedWindow && <p className="target-suggested">Applicazione suggerita dal tuo obiettivo. Puoi cambiarla prima di autorizzare.</p>}
+                <button type="button" className="target-discover" onClick={openApplicationPicker} disabled={isBlockedByWork}>⌕ Mostra le applicazioni</button>
+              </div>
               <label className="consent-line"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={isBlockedByWork} /><span>I authorize Piko to inspect this selected application in the background and, after I approve the route, activate its exact window to perform actions. Other applications are excluded.</span></label>
-              <button className="primary-button" type="submit" disabled={!consent || !objective.trim() || !executable.trim() || isBlockedByWork || !connected}><span>{busy === 'plan' ? 'Composing route…' : 'Compose a route'}</span><Mark name="arrow" /></button>
+              <button className="primary-button" type="submit" disabled={!consent || !objective.trim() || !target || isBlockedByWork || !connected}><span>{busy === 'plan' ? 'Composing route…' : 'Compose a route'}</span><Mark name="arrow" /></button>
             </form>
             <div className="intent-divider" />
             <div className="session-selector"><div className="mini-heading"><Kicker>Recent work</Kicker><span>{recentSessions.length} sessions</span></div>{recentSessions.length ? recentSessions.map(item => <button className={`session-option${session?.id === item.id ? ' session-option--selected' : ''}`} type="button" key={item.id} onClick={() => { setSession(item); setFrame(null); setFocusedTarget(null); setEvents([]); setReviewed(false); }}><span className="session-option-name">{item.objective}</span><span className="session-option-detail">{item.app_executable}<span>·</span>{item.state.replaceAll('_', ' ')}</span></button>) : <p className="muted-empty">No local sessions yet.</p>}</div>
@@ -776,6 +787,11 @@ export default function App() {
         <section className="system-card system-card--privacy"><Kicker index="03">Safety boundary</Kicker><h2>Never an invisible operator.</h2><p>Capture is opt-in. No background screenshots are streamed by this interface. A plan must be reviewed before desktop actions. No external AI endpoint is configured.</p><div className="privacy-emblem"><Mark name="shield" size={36} /></div>{session && <button type="button" className="system-secondary" disabled={!!busy} onClick={() => client && invoke('revoke', () => client.revoke(session.app_executable), `Permission for ${session.app_executable} revoked.`)}><Mark name="close" size={16} /> Revoke permission: {session.app_executable}</button>}</section>
       </div>}
     </div>
+    {pickingWindow && <div className="picker-active" role="status"><span className="picker-active-icon" aria-hidden="true">⊕</span><div><strong>Mirino attivo</strong><small>Clicca una finestra aperta. Piko non registra le digitazioni.</small></div><button type="button" onClick={cancelWindowPicking}>Annulla</button></div>}
+    {pickerOpen && <ApplicationPicker windows={applicationWindows} installed={installedApplications}
+      chosen={selectedTarget} goal={objective} fetching={pickerFetching} busy={!!busy}
+      onSelect={chooseApplicationWindow} onRefresh={() => void refreshApplicationWindows()}
+      onPick={startWindowPicking} onLaunch={launchApplication} onClose={closePicker} />}
     <footer className="status-footer"><div><span className="footer-symbol">✳</span><span>PIKO / SHOW ME. I’LL DO IT.</span></div><span className="footer-center">OBSERVE <span>→</span> PLAN <span>→</span> EXECUTE <span>→</span> VERIFY</span><div><span>NO HIDDEN TELEMETRY</span><span className="footer-mark">ALPHA 01</span></div></footer>
   </div>;
 }
