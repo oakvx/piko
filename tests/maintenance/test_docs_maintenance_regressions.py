@@ -21,3 +21,8 @@ def test_accept_valid_parent_directory_reference(tmp_path):
     page(tmp_path, "[Home](../README.md)", filename="docs/guide.md")
     page(tmp_path, "# Home")
     assert check_links(tmp_path) == []
+
+
+def test_ignore_external_https_dependency(tmp_path):
+    page(tmp_path, "[External](https://example.org/guide)")
+    assert check_links(tmp_path) == []
