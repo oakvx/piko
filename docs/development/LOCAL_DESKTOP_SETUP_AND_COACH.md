@@ -9,20 +9,30 @@ needed to obtain packages; inference after installation uses
 
 ## Windows application selection
 
-1. In Workfield, enter the goal and the exact executable basename (e.g.
-   `firefox.exe` or `notepad.exe`) and tick the authorization box.
-2. Piko enumerates top-level windows of **that executable only**. For multiple
-   browser or document windows select the correct window by title/PID.
-   A browser with 30+ subprocesses normally has far fewer top-level windows.
-3. UI Automation reads the selected window without requiring it to be in the
-   foreground. Piko pins the HWND, PID and process-creation time.
-4. The route appears for a **separate execution review**. Only when the user
-   explicitly clicks Execute does the Tauri host request foreground focus
-   for the exact window. The Python input layer independently rechecks its
-   identity, checks user grants, and rejects any unexpected foreground switch.
-5. Native Windows may refuse activation of a protected or elevated window;
-   Piko fails closed and asks the user to focus it manually. Elevated/admin
-   windows and restricted game processes may be inaccessible.
+1. In Workfield, type a natural-language goal, e.g. "Chiudi una scheda su
+   Firefox". Piko matches **an explicit application name** against running
+   windows locally. It will not invent a target when the goal is ambiguous.
+2. Click "Scegli un'applicazione" to open the visual switcher. The catalog
+   lists all ordinary visible task windows, grouped by application, with
+   friendly names and window titles. Select the exact window when an app
+   (such as Firefox) has multiple windows. No knowledge of `.exe` files,
+   process IDs or Windows internals is required.
+3. Alternatively click **"Seleziona cliccando una finestra"** (mirino).
+   After an explicit click, Piko temporarily listens for one physical left
+   click for at most 12 seconds. It records no keystrokes, mouse paths or
+   screenshot data. Closing the picker or expiry stops the listener.
+4. The **"Applicazioni installate"** tab searches the Windows Start Menu.
+   Opening one entry requires a separate user confirmation; it is never
+   executed merely because the instruction mentioned its name. Piko accepts
+   opaque IDs of locally enumerated Start Menu shortcuts, not arbitrary
+   executable paths from the frontend.
+5. Piko pins the chosen window's HWND, PID and process creation time, and
+   revalidates that identity when composing the route. It reads UIA elements
+   even if the target is behind Piko.
+6. The proposed route still requires a **separate approval**. Only the
+   approved HWND may be activated for input. Windows may reject focus changes
+   for elevated/protected windows; Piko fails closed rather than controlling
+   another application.
 
 **Background UIA is always available when Windows permits it.** On supported
 Windows/Pillow versions Piko additionally attempts HWND-specific background
@@ -70,8 +80,9 @@ usable RAM/VRAM than reported; a user can choose a smaller model manually.
 The Coach lens is **advice-only**:
 
 1. Install/select a vision-capable local Ollama model in System.
-2. Enter the game executable, consent to a maximum 30-minute read-only
-   session, select its precise window, and start.
+2. Select the game from the **same visual application switcher** used in
+   Workfield, consent to a maximum 30-minute read-only session and start.
+   Game executables do not have to be typed manually.
 3. Return focus to the game. Piko samples **only when that exact HWND/PID is
    foreground**, never a foreign application. Each frame is acquired through HWND-specific capture (not an unrestricted
    desktop crop), supplied directly to the loopback Ollama vision model and

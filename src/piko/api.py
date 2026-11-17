@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 
 from piko.contracts import AccessProfile, Grant, Plan, SessionState
 from piko.coach import LocalScreenCoach
+from piko.app_catalog import list_installed_apps, launch_installed_app
+from piko.window_picker import WindowClickPicker
 from piko.memory import LocalMemory
 from piko.ollama import OllamaProvider
 from piko.orchestrator import Agent
@@ -33,6 +35,11 @@ class CoachStartRequest(BaseModel):
     seconds: int = Field(default=1800, ge=30, le=3600)
     interval_seconds: float = Field(default=4.0, ge=3, le=30)
     consent: bool = False
+
+
+class LaunchAppRequest(BaseModel):
+    app_id: str = Field(pattern=r"^[a-f0-9]{24}$")
+    confirmed: bool = False
 
 
 class SetupInstallRequest(BaseModel):
@@ -114,6 +121,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
 
     setup = SetupCoordinator(inference, selected_local_models)
     coach = LocalScreenCoach(desktop, inference)
+    picker = WindowClickPicker(desktop)
     skills = SkillLibrary(base_root / "skills")
     teach = TeachRecorder(desktop, base_root / "demonstrations")
     running: dict[str, asyncio.Task] = {}
@@ -151,6 +159,7 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     async def lifespan(_app: FastAPI):
         yield
         agent.emergency_stop()
+        picker.cancel()
         await coach.stop()
         if teach.active_id is not None:
             await teach.stop()
@@ -269,6 +278,53 @@ def create_app(*, token: str, reasoning_model: str, vision_model: str | None = N
     async def revoke_grant(exe: str):
         permissions.revoke(exe)
         return {"revoked": exe}
+
+    @app.get("/windows/catalog", dependencies=[Depends(auth)])
+    async def windows_catalog():
+        """Read-only window metadata; no screenshots or input authorization."""
+        scan = getattr(desktop, "list_windows", None)
+        if scan is None:
+            return []
+        try:
+            return await asyncio.to_thread(scan)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/apps/installed", dependencies=[Depends(auth)])
+    async def installed_applications():
+        return await asyncio.to_thread(list_installed_apps)
+
+    @app.post("/apps/launch", dependencies=[Depends(auth)])
+    async def launch_application(request: LaunchAppRequest):
+        if not request.confirmed:
+            raise HTTPException(status_code=403, detail="Confirm launching the selected installed application")
+        if coach.status()["active"] or teach.active_id is not None or any(
+            not task.done() for task in running.values()
+        ):
+            raise HTTPException(status_code=409, detail="Stop other activity before opening an app")
+        try:
+            return await asyncio.to_thread(launch_installed_app, request.app_id)
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/windows/pick/start", dependencies=[Depends(auth)])
+    async def pick_window_start():
+        if coach.status()["active"] or teach.active_id is not None or any(
+            not task.done() for task in running.values()
+        ):
+            raise HTTPException(status_code=409, detail="Stop other capture or input sessions before selecting a window")
+        try:
+            return await asyncio.to_thread(picker.start)
+        except (RuntimeError, ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/windows/pick", dependencies=[Depends(auth)])
+    async def pick_window_status():
+        return picker.status()
+
+    @app.post("/windows/pick/cancel", dependencies=[Depends(auth)])
+    async def pick_window_cancel():
+        return await asyncio.to_thread(picker.cancel)
 
     @app.get("/windows", dependencies=[Depends(auth)])
     async def target_windows(executable: str):

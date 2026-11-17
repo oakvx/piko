@@ -605,3 +605,129 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
     animation:none;
   }
 }
+
+
+/* Task-switcher: visual applications, no executable filenames for end users. */
+.visual-target-button {
+  border:1px solid #714058; background:linear-gradient(114deg,#32202c,#211b26 65%);
+  color:#fff0f8; border-radius:13px; padding:13px 12px; display:flex; align-items:center;
+  gap:11px; width:100%; text-align:left; min-height:76px; transition:border-color .2s,transform .2s;
+}
+.visual-target-button:hover:not(:disabled) { border-color:#ff65a8; background:#352337; }
+.visual-target-icon,.picker-app-icon {
+  background:linear-gradient(133deg,#ffb2d0 0%,#fa439e 58%,#ff884c 100%);
+  color:#1b0b17; border-radius:12px; display:grid; place-items:center;
+  font-size:22px; font-weight:850; flex:0 0 44px; height:44px; text-transform:uppercase;
+  box-shadow:0 4px 19px #f84e7a29; user-select:none;
+}
+.visual-target-description { display:flex; flex-direction:column; gap:6px; flex:1; min-width:0; }
+.visual-target-description strong { font-size:12px; font-weight:790; }
+.visual-target-description small { color:#b9a4b7; font-size:10px; overflow:hidden;
+  white-space:nowrap; text-overflow:ellipsis; display:block; max-width:100%; margin:0;
+}
+.visual-target-action { color:#ff9fc9; white-space:nowrap; font-size:10px; font-weight:750; }
+.target-suggested { font-size:10px; color:#f4afcc; line-height:1.5; margin:11px 0 0; }
+.app-picker-backdrop {
+  position:fixed; inset:0; background:#040309d9; backdrop-filter:blur(10px);
+  display:flex; align-items:center; justify-content:center; z-index:100;
+  padding:18px;
+}
+.app-picker {
+  width:min(820px,100%); max-height:min(790px,92vh);
+  color:#fff0f6; background:radial-gradient(circle at 95% 3%,#4e1b3b4a,transparent 35%),#161119;
+  border:1px solid #74445d; box-shadow:0 28px 100px #000b;
+  border-radius:22px; display:flex; flex-direction:column; overflow:hidden;
+}
+.app-picker-head { display:flex; align-items:start; justify-content:space-between; gap:12px;
+  padding:26px 29px 16px; }
+.picker-kicker { color:#ff9dc5; font:700 10px Consolas,monospace; letter-spacing:.11em; }
+.app-picker-head h2 { margin:8px 0 5px; font-size:31px; font-weight:780; letter-spacing:-.055em; }
+.app-picker-head p { margin:0; color:#bca3b5; font-size:12px; line-height:1.6; }
+.picker-close { background:#2e1f2d; color:#ffd1e6; border:1px solid #74435c;
+  border-radius:10px; width:36px; height:36px; font-size:25px; flex:0 0 36px; }
+.picker-search-row { padding:4px 29px 15px; display:flex; gap:9px; }
+.picker-search { display:flex; align-items:center; flex:1; background:#241a26;
+  border:1px solid #563447; color:#fc92bd; border-radius:11px; padding:0 12px; gap:9px; }
+.picker-search:focus-within { border-color:#ff65ac; }
+.picker-search > span { font-size:25px; line-height:1; }
+.picker-search input { flex:1; width:100%; min-width:0; min-height:43px;
+  border:0; outline:0; background:transparent; color:#fff0f6; font-size:13px; }
+.picker-search input::placeholder { color:#987f92; }
+.picker-refresh { border:1px solid #66415a; background:#2b1c2b;
+  color:#ffa3ce; border-radius:11px; width:45px; font-size:23px; }
+.picker-refresh:hover:not(:disabled) { background:#4f2d44; }
+.picker-tabs { display:flex; padding:0 29px; gap:8px; border-bottom:1px solid #48313e; }
+.picker-tabs button { background:transparent; border:0; padding:13px 12px;
+  color:#ab93a6; border-bottom:2px solid transparent; font-size:12px; font-weight:700; }
+.picker-tabs button span { margin-left:6px; opacity:.7; }
+.picker-tabs button.is-active { color:#ffd5e4; border-bottom-color:#fb5ca5; }
+.picker-scroll { flex:1; overflow-y:auto; min-height:160px; padding:18px 29px 25px; }
+.picker-groups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-content:start; }
+.picker-group { background:#231a26; border:1px solid #493343; border-radius:13px;
+  overflow:hidden; min-width:0; }
+.picker-group:hover { border-color:#754158; }
+.picker-group--chosen { border-color:#fa6bab; }
+.picker-group-toggle { background:none; color:inherit; padding:12px; border:0; width:100%;
+  display:flex; gap:12px; align-items:center; text-align:left; min-width:0; }
+.picker-app-summary { display:flex; flex-direction:column; gap:5px; min-width:0; flex:1; }
+.picker-app-summary strong { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.picker-app-summary small { color:#a991a3; font-size:10px; }
+.picker-hint { color:#f8b5d2; font:700 9px Consolas,monospace; padding:5px 7px;
+  border-radius:7px; background:#5d2946; white-space:nowrap; }
+.picker-chevron { color:#bd9caf; font-size:18px; }
+.picker-window-list { padding:2px 9px 10px; display:flex; flex-direction:column; gap:6px; }
+.picker-window { background:#18121c; color:#fff0f6; border:1px solid #503345;
+  border-radius:9px; padding:10px; width:100%; display:flex; align-items:center; gap:10px;
+  text-align:left; }
+.picker-window:hover:not(:disabled) { border-color:#ee609d; background:#342033; }
+.picker-window--selected { border-color:#ff9d74; background:#3e2234; }
+.picker-window > span:nth-child(2) { flex:1; display:flex; flex-direction:column; gap:5px; min-width:0; }
+.picker-window strong { font-size:11px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.picker-window small { color:#b39aaa; font-size:9px; }
+.picker-window-symbol { font-size:20px; color:#f697bc; flex:0 0 24px; }
+.picker-select-mark { color:#ff9fc0; font-size:18px; }
+.picker-installed { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.picker-install-row { min-width:0; display:flex; align-items:center; gap:11px; padding:10px;
+  border:1px solid #493344; border-radius:12px; background:#241b29; }
+.picker-install-row .picker-app-icon { height:39px; flex-basis:39px; font-size:19px; }
+.picker-launch { color:#ffe1ec; background:#5e2644; border:1px solid #a34772;
+  border-radius:8px; padding:9px 12px; font-size:11px; font-weight:700; }
+.picker-launch-confirm { display:flex; flex-wrap:wrap; gap:6px; justify-content:end; font-size:10px; }
+.picker-launch-confirm span { width:100%; text-align:right; color:#ffccd9; }
+.picker-launch-confirm button { background:#66324b; border:1px solid #9c4d70;
+  border-radius:8px; padding:5px 8px; font-size:10px; color:#ffe6ef; }
+.picker-empty { display:grid; justify-items:center; text-align:center; gap:10px;
+  padding:35px 15px; }
+.picker-empty strong { color:#ffe5ed; font-size:14px; }
+.picker-empty p { margin:0; font-size:12px; color:#b89aaa; line-height:1.7; }
+.picker-empty button { padding:10px 14px; background:#592b43; border:1px solid #ac5e87;
+  color:#fff2f8; border-radius:9px; }
+.picker-footer { padding:16px 29px 20px; border-top:1px solid #48303e;
+  display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.picker-privacy { color:#a88f9f; font-size:10px; line-height:1.5; max-width:325px; }
+.picker-aim { display:flex; align-items:center; gap:9px; border-radius:10px;
+  background:linear-gradient(110deg,#ffbad8,#ff4aa5 58%,#ff8a55); color:#200b19;
+  border:0; font-size:11px; font-weight:800; padding:13px 17px; }
+.picker-aim > span { font-size:20px; }
+.picker-active { position:fixed; bottom:25px; left:50%; transform:translateX(-50%);
+  z-index:110; background:#251626; color:#fff2f8; border:1px solid #ff75ac;
+  box-shadow:0 9px 38px #000b; padding:13px 18px; display:flex; align-items:center;
+  gap:17px; border-radius:16px; min-width:min(580px,95vw); }
+.picker-active-icon { font-size:31px; color:#ff9fbc; }
+.picker-active > div { display:flex; flex-direction:column; gap:5px; flex:1; }
+.picker-active strong { font-size:12px; }
+.picker-active small { font-size:10px; color:#c0a4b5; }
+.picker-active button { background:#52233e; border:1px solid #9a5479; color:#ffe7f0;
+  border-radius:9px; padding:9px 12px; font-size:11px; }
+@media(max-width:740px) {
+ .app-picker-backdrop { padding:8px; }
+ .app-picker { max-height:97vh; border-radius:15px; }
+ .app-picker-head { padding:17px 16px 12px; }
+ .app-picker-head h2 { font-size:24px; }
+ .picker-search-row { padding-inline:16px; }
+ .picker-tabs { padding-inline:16px; }
+ .picker-scroll { padding:14px 16px; }
+ .picker-groups,.picker-installed { grid-template-columns:1fr; }
+ .picker-footer { padding:13px 16px; flex-direction:column; align-items:stretch; }
+ .picker-aim { justify-content:center; }
+}

@@ -48,6 +48,29 @@ def test_background_window_uia_uses_selected_hwnd_not_current_foreground():
         assert current.window_handle != approved.window_handle
         assert current.executable == approved.executable
 
+        # The visual task switcher must enumerate *all* normal top-level
+        # windows without asking an end user to supply powershell.exe.
+        catalog = bridge.list_windows()
+        assert any(item["window_handle"] == approved.window_handle and
+                   item["process_id"] == approved.process_id for item in catalog)
+        assert any(item["window_handle"] == current.window_handle and
+                   item["process_started_at"] == current.process_started_at
+                   for item in catalog)
+        assert all(item.get("display_name") and isinstance(
+            item.get("is_foreground"), bool) for item in catalog)
+        assert next(item for item in catalog
+                    if item["window_handle"] == current.window_handle)["is_foreground"]
+
+        # The real OS hit-testing API recognizes the current foreground window
+        # at a visible point. This is a read-only query; no injected click.
+        rectangle = foreign.rectangle()
+        selected = bridge.window_at(
+            (rectangle.left + rectangle.right) // 2,
+            (rectangle.top + rectangle.bottom) // 2,
+        )
+        assert selected is not None
+        assert selected["window_handle"] == current.window_handle
+
         # UIA can inspect the exact approved WinForms window without changing
         # the current foreground and without capturing unrelated pixels.
         found = bridge.list_windows(approved.executable)

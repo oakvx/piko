@@ -16,6 +16,28 @@ from piko.contracts import Action, ActionKind, Observation, UIElement
 from piko.input_guard import OwnedKeyboard
 
 
+
+
+def _user32():
+    """Declare 64-bit-safe HWND signatures; ctypes defaults truncate pointers."""
+    api = ctypes.windll.user32
+    api.GetForegroundWindow.restype = wintypes.HWND
+    api.WindowFromPoint.argtypes = [wintypes.POINT]
+    api.WindowFromPoint.restype = wintypes.HWND
+    api.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    api.GetAncestor.restype = wintypes.HWND
+    api.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    api.GetWindow.restype = wintypes.HWND
+    api.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    api.GetWindowThreadProcessId.restype = wintypes.DWORD
+    api.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    api.GetWindowRect.restype = wintypes.BOOL
+    api.IsWindowVisible.argtypes = [wintypes.HWND]
+    api.IsWindowVisible.restype = wintypes.BOOL
+    api.IsWindow.argtypes = [wintypes.HWND]
+    api.IsWindow.restype = wintypes.BOOL
+    return api
+
 class DesktopUnavailable(RuntimeError):
     pass
 
@@ -68,7 +90,7 @@ class WindowsDesktop:
 
     def _foreground(self) -> tuple[int, int, str, str]:
         import psutil
-        user32 = ctypes.windll.user32
+        user32 = _user32()
         hwnd = user32.GetForegroundWindow()
         if not hwnd:
             raise DesktopUnavailable("No active desktop window")
@@ -92,30 +114,36 @@ class WindowsDesktop:
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
             raise DesktopUnavailable("Cannot verify active process identity") from exc
 
-    def list_windows(self, executable: str) -> list[dict]:
-        """List *top-level* windows belonging to the exact requested process.
+    def list_windows(self, executable: str | None = None) -> list[dict]:
+        """Enumerate ordinary top-level task windows; executable is optional.
 
-        Never guess among multiple browser windows or confuse subprocesses
-        with independent tabs. The caller must authorize the executable.
+        Window metadata never grants input rights. The user must still pick
+        one exact HWND/PID/process lifetime and approve the resulting route.
         """
         import psutil
+        from piko.app_catalog import display_name
 
-        requested = os.path.basename(executable).casefold()
-        if not requested.endswith(".exe") or requested != executable.casefold():
-            raise DesktopUnavailable("Select an executable basename, for example firefox.exe")
-        user32 = ctypes.windll.user32
+        requested = executable.casefold() if executable else None
+        if requested is not None and (
+            not requested.endswith(".exe") or requested != os.path.basename(requested)
+        ):
+            raise DesktopUnavailable("Executable must be a basename")
+        user32 = _user32()
         handles: list[int] = []
         callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
         @callback_type
         def collect(hwnd, _lparam):
-            if user32.IsWindowVisible(hwnd) and user32.GetWindow(hwnd, 4) == 0:
+            # EnumWindows already yields top-level windows. Owned WinForms
+            # windows are valid visible targets, not child controls.
+            if user32.IsWindowVisible(hwnd):
                 handles.append(int(hwnd))
             return True
 
         if not user32.EnumWindows(collect, 0):
             raise DesktopUnavailable("Unable to enumerate desktop windows")
         result: list[dict] = []
+        foreground_hwnd = self._foreground_hwnd()
         for hwnd in handles:
             title = ctypes.create_unicode_buffer(512)
             user32.GetWindowTextW(hwnd, title, len(title))
@@ -129,21 +157,37 @@ class WindowsDesktop:
             try:
                 proc = psutil.Process(pid.value)
                 name = os.path.basename(proc.exe()).casefold()
-                if name != requested:
+                if requested is not None and name != requested:
                     continue
                 started = float(proc.create_time())
             except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
                 continue
             result.append({"window_handle": hwnd, "process_id": pid.value,
                            "process_started_at": started, "executable": name,
-                           "title": (title.value[:240] or "(untitled game window)")})
-        return result[:40]
+                           "display_name": display_name(name),
+                           "is_foreground": hwnd == foreground_hwnd,
+                           "title": (title.value[:240] or "(finestra senza titolo)")})
+        return result[:(80 if requested else 160)]
+
+    @staticmethod
+    def _foreground_hwnd() -> int:
+        return int(_user32().GetForegroundWindow() or 0)
+
+    def window_at(self, x: int, y: int) -> dict | None:
+        """Resolve a physical pointer click to one enumerated task window."""
+        user32 = _user32()
+        hwnd = user32.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+        if not hwnd:
+            return None
+        top = int(user32.GetAncestor(hwnd, 2) or hwnd)  # GA_ROOT
+        return next((item for item in self.list_windows()
+                     if item["window_handle"] == top), None)
 
     def _assert_window(self, hwnd: int, executable: str,
                        process_id: int | None = None,
                        started_at: float | None = None) -> dict:
         """Revalidate HWND, process and process lifetime without changing focus."""
-        user32 = ctypes.windll.user32
+        user32 = _user32()
         if not hwnd or not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd):
             raise DesktopUnavailable("Selected application window is no longer available")
         pid = wintypes.DWORD(0)

@@ -1,4 +1,4 @@
-import type { AgentEvent, Demonstration, Health, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
+import type { AgentEvent, ApplicationWindow, InstalledApplication, WindowPickState, Demonstration, Health, ModelInfo, Observation, Plan, Session, Skill, TeachAnalysis } from './types';
 
 const DEFAULT_ORIGIN = 'http://127.0.0.1:8765';
 
@@ -103,6 +103,20 @@ export class PikoClient {
   skillHistory(slug: string) {
     return this.request<Array<{ session_id: string; completed: boolean; timestamp: string }>>(
       `/skills/${encodeURIComponent(slug)}/history`);
+  }
+  windowCatalog() { return this.request<ApplicationWindow[]>('/windows/catalog'); }
+  installedApplications() { return this.request<InstalledApplication[]>('/apps/installed'); }
+  launchInstalledApp(app_id: string) {
+    return this.request<{ launched: boolean; name: string }>('/apps/launch', {
+      method: 'POST', body: JSON.stringify({ app_id, confirmed: true }),
+    });
+  }
+  startWindowPick() {
+    return this.request<WindowPickState>('/windows/pick/start', { method: 'POST' });
+  }
+  windowPickStatus() { return this.request<WindowPickState>('/windows/pick'); }
+  cancelWindowPick() {
+    return this.request<WindowPickState>('/windows/pick/cancel', { method: 'POST' });
   }
   windows(executable: string) {
     return this.request<Array<{ window_handle: number; title: string; executable: string; process_id: number; process_started_at: number }>>(

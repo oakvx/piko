@@ -164,12 +164,16 @@ account or API key is needed; **model and runtime downloads do require internet*
 The NSIS installer itself intentionally does not bundle Ollama's multi-GB
 redistributable or delete a user's pre-existing Ollama/models on uninstall.
 
-Workfield can select an explicit open window by executable, title and process
-identity even while Piko is in front. UIA planning is background-capable; a
-separately reviewed action activates only the approved HWND. HWND-specific screenshots are attempted on supported Windows/Pillow versions,
-but unsupported or blank capture falls back to UIA without foreign pixels.
+**No executable names required:** Workfield presents a local, searchable
+Windows task switcher with grouped application windows, optional suggestions
+based on the user's goal, and a one-shot click-to-pick crosshair. Installed
+apps can be searched through Start Menu shortcuts and opened only after user
+confirmation. Piko independently pins and rechecks HWND/PID/process identity;
+a separately reviewed action activates only the approved target. UIA planning
+does not require the application to be foreground. HWND-specific screenshots
+are best-effort; untrusted or unavailable pixels safely fall back to UIA.
 
-The optional **Coach** lens captures the approved foreground game window at a
+The optional **Coach** lens also uses the visual app picker, and captures the approved foreground game window at a
 bounded interval and generates tips using local Ollama vision. Capture stops on
 request, expiry or invalid window identity. It neither stores captured frames
 nor controls the game. The compact Piko overlay works best in borderless or
