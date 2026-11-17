@@ -24,3 +24,8 @@ def test_reject_oversized_uia_target():
 def test_reject_unrecognized_verification_property():
     with pytest.raises(ValidationError):
         Expectation(automation_id="Status", property="screen_looks_right")
+
+
+def test_reject_extra_expectation_attributes():
+    with pytest.raises(ValidationError):
+        Expectation(automation_id="Status", property="exists", x=101)
