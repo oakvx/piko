@@ -52,3 +52,9 @@ def test_detect_broken_readme_reference(tmp_path):
 def test_detect_missing_html_image_resource(tmp_path):
     page(tmp_path, '<img src="docs/missing.png">')
     assert check_links(tmp_path) == ["README.md:1: broken local link: docs/missing.png"]
+
+
+def test_ignore_missing_resource_in_fenced_code(tmp_path):
+    fence = chr(96) * 3
+    page(tmp_path, fence + "md\n[example](missing.md)\n" + fence + "\n")
+    assert check_links(tmp_path) == []
