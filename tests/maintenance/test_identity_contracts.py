@@ -18,3 +18,8 @@ def test_reject_grant_with_backslash_path():
 
 def test_normalize_grant_case_for_authorization():
     assert Grant(executable="DEMO.EXE").executable == "demo.exe"
+
+
+def test_reject_grant_without_app_identity():
+    with pytest.raises(ValidationError):
+        Grant(executable="")
