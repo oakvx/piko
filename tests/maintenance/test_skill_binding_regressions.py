@@ -31,3 +31,8 @@ def test_refuse_missing_required_template_input():
 def test_refuse_unexpected_template_parameter():
     with pytest.raises(SkillParameterError, match="unexpected"):
         bind_plan(template(), {"name": "Ada", "other": "no"})
+
+
+def test_refuse_non_string_user_substitution():
+    with pytest.raises(SkillParameterError, match="Invalid text value"):
+        bind_plan(template(), {"name": 47})
