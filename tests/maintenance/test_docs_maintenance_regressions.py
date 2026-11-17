@@ -58,3 +58,8 @@ def test_ignore_missing_resource_in_fenced_code(tmp_path):
     fence = chr(96) * 3
     page(tmp_path, fence + "md\n[example](missing.md)\n" + fence + "\n")
     assert check_links(tmp_path) == []
+
+
+def test_reject_links_escaping_repository(tmp_path):
+    page(tmp_path, "[Outside](../../private.txt)")
+    assert check_links(tmp_path) == ["README.md:1: broken local link: ../../private.txt"]
