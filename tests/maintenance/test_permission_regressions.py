@@ -33,3 +33,10 @@ def test_accept_observation_for_matching_session():
     permissions = PermissionManager()
     permissions.grant(Grant(executable="demo.exe", session_id="session-1"))
     permissions.check_observe("demo.exe", "session-1")
+
+
+def test_deny_grant_from_different_session():
+    permissions = PermissionManager()
+    permissions.grant(Grant(executable="demo.exe", session_id="session-1"))
+    with pytest.raises(PermissionDenied, match="different session"):
+        permissions.check_observe("demo.exe", "session-2")
