@@ -49,3 +49,13 @@ def test_reject_empty_keyboard_chord_without_input():
     with pytest.raises(ValueError, match="Invalid keyboard chord"):
         keyboard.chord((), lambda: None)
     assert events == []
+
+
+def test_block_new_chord_after_emergency_stop():
+    events = []
+    keyboard = OwnedKeyboard(lambda key, down: events.append((key, down)), lambda key: False)
+    keyboard.begin_session()
+    keyboard.release_all()
+    with pytest.raises(InputStopped, match="Emergency stop"):
+        keyboard.chord((17,), lambda: None)
+    assert events == []
