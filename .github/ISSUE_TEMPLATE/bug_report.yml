@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible defect in Piko.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Piko is experimental. Do not attach recordings, API keys, screen contents,
+        passwords, personal data or local model transcripts. Security issues should
+        be reported privately using SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Piko version or commit
+      placeholder: "preview SHA or main commit"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11 x64
+        - Windows 10 x64
+        - Other (unsupported / exploratory)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a safe test app and omit private screen data.
+      placeholder: "1. Open the supplied testbench..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Component
+      options:
+        - Installer / startup
+        - Windows UI Automation
+        - Ollama / model output
+        - Teach / Skills
+        - Desktop interface
+        - Permissions / safety
+        - Documentation / other
+    validations:
+      required: true
