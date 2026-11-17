@@ -28,3 +28,7 @@ def test_allow_analysis_to_plan():
 
 def test_require_user_review_after_planning():
     assert transition(in_state(SessionState.PLANNING), SessionState.WAITING_FOR_USER).state == SessionState.WAITING_FOR_USER
+
+
+def test_allow_explicit_execution_after_review():
+    assert transition(in_state(SessionState.WAITING_FOR_USER), SessionState.EXECUTING).state == SessionState.EXECUTING
