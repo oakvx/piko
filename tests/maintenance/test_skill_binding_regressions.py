@@ -36,3 +36,8 @@ def test_refuse_unexpected_template_parameter():
 def test_refuse_non_string_user_substitution():
     with pytest.raises(SkillParameterError, match="Invalid text value"):
         bind_plan(template(), {"name": 47})
+
+
+def test_refuse_parameter_longer_than_text_quota():
+    with pytest.raises(SkillParameterError, match="Invalid text value"):
+        bind_plan(template(), {"name": "x" * 1001})
