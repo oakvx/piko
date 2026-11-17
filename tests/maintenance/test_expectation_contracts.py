@@ -44,3 +44,8 @@ def test_reject_missing_text_contains_value():
 def test_reject_boolean_window_title_reference():
     with pytest.raises(ValidationError):
         Expectation(automation_id="@window", property="window_title_changed", value=True)
+
+
+def test_reject_missing_enabled_expectation_flag():
+    with pytest.raises(ValidationError):
+        Expectation(automation_id="Save", property="enabled")
