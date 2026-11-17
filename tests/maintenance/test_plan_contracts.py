@@ -40,3 +40,8 @@ def test_reject_empty_explanation():
 def test_reject_whitespace_explanation():
     with pytest.raises(ValidationError):
         make_plan(explanation="   ")
+
+
+def test_reject_explanation_over_2000_characters():
+    with pytest.raises(ValidationError):
+        make_plan(explanation="x" * 2001)
