@@ -20,3 +20,7 @@ def test_allow_cancel_before_first_action():
 
 def test_allow_observation_to_analysis():
     assert transition(in_state(SessionState.OBSERVING), SessionState.ANALYZING).state == SessionState.ANALYZING
+
+
+def test_allow_analysis_to_plan():
+    assert transition(in_state(SessionState.ANALYZING), SessionState.PLANNING).state == SessionState.PLANNING
