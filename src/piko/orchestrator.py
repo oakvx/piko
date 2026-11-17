@@ -111,12 +111,19 @@ class Agent:
             raise InvalidTransition("Only idle sessions may be planned")
         session = self._state(session, SessionState.OBSERVING)
         try:
-            observation = await asyncio.to_thread(self._observation, session, self.vision is not None)
+            # Explicit, tiny local intents (e.g. closing a selected browser
+            # tab) are already fully describable with a typed safe hotkey.
+            # Do not run an unnecessary vision model before that plan: it can
+            # time out on CPU and would capture pixels for no benefit.
+            compiler = getattr(self.planner, "can_compile_without_vision", None)
+            skip_vision = bool(callable(compiler) and compiler(
+                session.objective, session.app_executable))
+            vision = self.vision if not skip_vision else None
+            observation = await asyncio.to_thread(self._observation, session, vision is not None)
             session = self._state(session, SessionState.ANALYZING)
-            # A background window can be inspected through UIA, but its pixels
-            # must never be fabricated from an occluded desktop screenshot.
-            # Use vision only when scoped, fresh pixels are available.
-            summary = await self.vision(observation) if self.vision and observation.image_base64 else None
+            # Background UIA is usable without foreground focus; fresh pixels
+            # are optional and must always remain window-scoped.
+            summary = await vision(observation) if vision and observation.image_base64 else None
             session = self._state(session, SessionState.PLANNING)
             plan = await self.planner.plan(session.objective, observation, summary)
             # Model cannot request UI controls not observed at planning time.
