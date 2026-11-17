@@ -134,13 +134,16 @@ class WindowsDesktop:
 
         @callback_type
         def collect(hwnd, _lparam):
-            if user32.IsWindowVisible(hwnd) and user32.GetWindow(hwnd, 4) == 0:
+            # EnumWindows already yields top-level windows. Owned WinForms
+            # windows are valid visible targets, not child controls.
+            if user32.IsWindowVisible(hwnd):
                 handles.append(int(hwnd))
             return True
 
         if not user32.EnumWindows(collect, 0):
             raise DesktopUnavailable("Unable to enumerate desktop windows")
         result: list[dict] = []
+        foreground_hwnd = self._foreground_hwnd()
         for hwnd in handles:
             title = ctypes.create_unicode_buffer(512)
             user32.GetWindowTextW(hwnd, title, len(title))
@@ -162,9 +165,9 @@ class WindowsDesktop:
             result.append({"window_handle": hwnd, "process_id": pid.value,
                            "process_started_at": started, "executable": name,
                            "display_name": display_name(name),
-                           "is_foreground": hwnd == self._foreground_hwnd(),
+                           "is_foreground": hwnd == foreground_hwnd,
                            "title": (title.value[:240] or "(finestra senza titolo)")})
-        return result[:(40 if requested else 100)]
+        return result[:(80 if requested else 160)]
 
     @staticmethod
     def _foreground_hwnd() -> int:
