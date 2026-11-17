@@ -33,3 +33,8 @@ def test_reject_zero_native_window_handle():
 def test_reject_zero_native_process_id():
     with pytest.raises(ValidationError):
         Session(objective="Inspect", app_executable="demo.exe", target_process_id=0)
+
+
+def test_reject_negative_process_start_time():
+    with pytest.raises(ValidationError):
+        Session(objective="Inspect", app_executable="demo.exe", target_process_started_at=-1.0)
