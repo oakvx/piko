@@ -26,3 +26,8 @@ def test_leave_plain_text_skill_without_parameters():
 def test_refuse_missing_required_template_input():
     with pytest.raises(SkillParameterError, match="missing"):
         bind_plan(template(), {})
+
+
+def test_refuse_unexpected_template_parameter():
+    with pytest.raises(SkillParameterError, match="unexpected"):
+        bind_plan(template(), {"name": "Ada", "other": "no"})
