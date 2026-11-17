@@ -47,3 +47,8 @@ def test_reject_incorrect_enabled_state():
 def test_compare_exact_uia_value():
     el = UIElement(automation_id="Status", value="Saved")
     assert verify(expected("text_equals", "Saved"), observe(el))[0]
+
+
+def test_compare_exact_accessible_name():
+    el = UIElement(automation_id="Status", name="Saved", value="Pending")
+    assert verify(expected("text_equals", "Saved"), observe(el))[0]
