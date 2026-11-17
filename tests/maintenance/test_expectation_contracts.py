@@ -34,3 +34,8 @@ def test_reject_extra_expectation_attributes():
 def test_reject_missing_text_equals_value():
     with pytest.raises(ValidationError):
         Expectation(automation_id="Status", property="text_equals")
+
+
+def test_reject_missing_text_contains_value():
+    with pytest.raises(ValidationError):
+        Expectation(automation_id="Status", property="text_contains")
