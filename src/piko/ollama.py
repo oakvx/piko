@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from typing import Annotated, Any, Literal
 
@@ -68,6 +69,22 @@ class GeneratedWait(StrictModel):
     timeout_seconds: float = Field(default=5, ge=0.1, le=15)
 
 
+# Deterministic intent compilation is restricted to an explicit tab close in
+# a recognized browser; all input still requires a reviewed, granted route.
+_BROWSER_EXES = frozenset({
+    "firefox.exe", "chrome.exe", "msedge.exe", "brave.exe",
+    "opera.exe", "vivaldi.exe",
+})
+_CLOSE_ACTIVE_TAB = re.compile(
+    r"(?:chiudi|chiudimi|chiudere|close)\s+"
+    r"(?:(?:la|questa|the|current)\s+)?"
+    r"(?:scheda|tab)"
+    r"(?:\s+(?:attiva|corrente|attuale|aperta|active|current))?"
+    r"(?:\s+(?:su|di|in)\s+(?:firefox|chrome|edge|browser|brave|opera|vivaldi))?"
+    r"[.!]?", re.IGNORECASE,
+)
+
+
 GeneratedAction = Annotated[
     GeneratedClick | GeneratedSetText | GeneratedHotkey | GeneratedWait,
     Field(discriminator="kind"),
@@ -122,11 +139,19 @@ class OllamaProvider:
             for attempt in range(2):
                 response = await self.client.post("/api/chat", json={
                     "model": model, "messages": prompt_messages, "stream": False,
-                    "format": schema.model_json_schema(),
+                    # Qwen3 may spend its token budget on a separate thinking
+                    # stream while leaving message.content empty.
+                    "think": False,
+                    # Some small models struggle with discriminated oneOf;
+                    # retry with JSON-only generation and the SAME strict
+                    # schema validation before accepting any response.
+                    "format": schema.model_json_schema() if attempt == 0 else "json",
                     "options": {"temperature": 0, "num_predict": max_output_tokens},
                 })
                 response.raise_for_status()
-                content = response.json()["message"]["content"]
+                content = response.json()["message"].get("content")
+                if not isinstance(content, str):
+                    content = ""
                 try:
                     return schema.model_validate_json(content)
                 except ValidationError as exc:
@@ -150,7 +175,9 @@ class OllamaProvider:
                             "and wait.condition. Every expected object needs an observed "
                             "automation_id and verifiable property. "
                             "Do not add unnecessary actions. A visual summary must be "
-                            "at most 25 words. No explanatory prose or Markdown."
+                            "at most 25 words. No explanatory prose or Markdown. "
+                            "The next answer uses JSON-only output formatting, but "
+                            "all fields must still conform exactly to the action contract."
                         ),
                     })
             raise InferenceError("Ollama produced no valid response")
@@ -178,6 +205,24 @@ class OllamaProvider:
 
     async def plan(self, objective: str, observation: Observation,
                    scene_summary: str | None = None) -> Plan:
+        # Compile only the explicit "close active tab" intent to a typed plan.
+        # Never dispatch inputs here: consent, reviewed route, exact HWND/PID
+        # identity and fresh title verification remain separate strict gates.
+        if (observation.executable.casefold() in _BROWSER_EXES
+                and _CLOSE_ACTIVE_TAB.fullmatch(objective.strip())
+                and observation.window_title):
+            from piko.contracts import Action
+            return Plan(
+                objective=objective,
+                explanation=("Close the active tab in the selected browser window "
+                             "using Ctrl+W; verify a subsequent window-title change."),
+                actions=[Action(
+                    kind="keyboard.hotkey", keys=["ctrl", "w"],
+                    expected=Expectation(
+                        automation_id="@window", property="window_title_changed",
+                        value=observation.window_title),
+                )],
+            )
         available = [el.model_dump(exclude={"is_password"}) for el in observation.elements
                      if el.automation_id and not el.is_password]
         context = {"user_objective": objective, "active_application": observation.executable,
@@ -210,7 +255,19 @@ class OllamaProvider:
             if action.automation_id and action.automation_id not in known:
                 raise InferenceError("Planner invented a UI selector")
             if action.expected.automation_id not in known:
-                raise InferenceError("Planner invented a verification selector")
+                # @window is a special verification scope, not a UIA control.
+                # It is accepted only for the explicit browser tab-close intent.
+                permitted_window_scope = (
+                    action.expected.automation_id == "@window"
+                    and action.expected.property == "window_title_changed"
+                    and action.kind.value == "keyboard.hotkey"
+                    and [key.casefold() for key in action.keys] == ["ctrl", "w"]
+                    and observation.executable.casefold() in _BROWSER_EXES
+                    and action.expected.value == observation.window_title
+                    and _CLOSE_ACTIVE_TAB.fullmatch(objective.strip()) is not None
+                )
+                if not permitted_window_scope:
+                    raise InferenceError("Planner invented a verification selector")
         return result
 
 
