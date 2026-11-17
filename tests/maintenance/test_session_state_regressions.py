@@ -24,3 +24,7 @@ def test_allow_observation_to_analysis():
 
 def test_allow_analysis_to_plan():
     assert transition(in_state(SessionState.ANALYZING), SessionState.PLANNING).state == SessionState.PLANNING
+
+
+def test_require_user_review_after_planning():
+    assert transition(in_state(SessionState.PLANNING), SessionState.WAITING_FOR_USER).state == SessionState.WAITING_FOR_USER
