@@ -9,6 +9,10 @@ on:
     paths:
       - '.github/workflows/real-ollama.yml'
       - 'src/piko/ollama.py'
+      - 'src/piko/setup.py'
+      - 'src/piko/coach.py'
+      - 'tests/test_onboarding_security.py'
+      - 'tests/test_local_coach_setup.py'
       - 'tests/test_ollama_schema_recovery.py'
       - 'tests/real/test_ollama_inference.py'
       - 'tests/real/test_ollama_windows_agent.py'
@@ -76,6 +80,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Reasoning model download failed' }
           & $env:PIKO_OLLAMA_BIN pull $env:PIKO_OLLAMA_VISION_MODEL
           if ($LASTEXITCODE -ne 0) { throw 'Vision model download failed' }
+      - name: Verify local first-run and Coach security on the actual Windows runner
+        shell: pwsh
+        run: |
+          python -m pytest -q -ra tests/test_onboarding_security.py tests/test_local_coach_setup.py tests/test_window_selection.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run REAL reasoning, vision and model-driven native Agent E2E
         shell: pwsh
         run: |
