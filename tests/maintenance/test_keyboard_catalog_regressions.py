@@ -12,3 +12,7 @@ def test_show_friendly_firefox_name():
 
 def test_show_localized_notepad_name():
     assert display_name("notepad.exe") == "Blocco note"
+
+
+def test_present_unrecognized_executable_humanely():
+    assert display_name("household_tool.exe") == "Household Tool"
