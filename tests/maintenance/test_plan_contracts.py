@@ -20,3 +20,8 @@ def make_plan(**overrides):
 def test_reject_empty_objective():
     with pytest.raises(ValidationError):
         make_plan(objective="")
+
+
+def test_reject_whitespace_objective():
+    with pytest.raises(ValidationError):
+        make_plan(objective="   ")
