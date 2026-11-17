@@ -61,6 +61,10 @@ async def test_plan_start_returns_immediately_and_requires_separate_review(tmp_p
                 json={"objective": "Click Save", "executable": "demo.exe"})
             assert created.status_code == 200
             sid = created.json()["id"]
+            grant = await api.post("/permissions", headers=headers, json={
+                "executable": "demo.exe", "profile": "limited", "session_id": sid,
+            })
+            assert grant.status_code == 200
             assert (await api.post(
                 f"/sessions/{sid}/plan/start", headers={"Authorization": "Bearer INVALID"}
             )).status_code == 401
@@ -105,6 +109,10 @@ async def test_failed_background_planner_marks_session_failed_with_no_actions(tm
                                     base_url="http://test") as api:
             sid = (await api.post("/sessions", headers=headers,
                 json={"objective": "Click Save", "executable": "demo.exe"})).json()["id"]
+            grant = await api.post("/permissions", headers=headers, json={
+                "executable": "demo.exe", "profile": "limited", "session_id": sid,
+            })
+            assert grant.status_code == 200
             assert (await api.post(f"/sessions/{sid}/plan/start",
                                    headers=headers)).status_code == 202
             inference.gate.set()
