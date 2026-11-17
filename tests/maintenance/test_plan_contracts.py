@@ -25,3 +25,8 @@ def test_reject_empty_objective():
 def test_reject_whitespace_objective():
     with pytest.raises(ValidationError):
         make_plan(objective="   ")
+
+
+def test_reject_objective_over_500_characters():
+    with pytest.raises(ValidationError):
+        make_plan(objective="x" * 501)
