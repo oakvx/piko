@@ -17,3 +17,7 @@ def template(text="{{name}}", expectation="{{name}}"):
 def test_sort_and_deduplicate_template_parameter_names():
     plan = template(text="{{beta}} {{alpha}}", expectation="{{alpha}}")
     assert parameter_names(plan) == ["alpha", "beta"]
+
+
+def test_leave_plain_text_skill_without_parameters():
+    assert parameter_names(template(text="Ada", expectation="Ada")) == []
