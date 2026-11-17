@@ -20,3 +20,8 @@ def test_present_unrecognized_executable_humanely():
 
 def test_normalize_known_executable_case_for_display():
     assert display_name("FIREFOX.EXE") == "Firefox"
+
+
+def test_bound_display_label_length():
+    label = display_name("a" * 100 + ".exe")
+    assert len(label) <= 70
