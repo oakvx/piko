@@ -38,3 +38,8 @@ def test_refuse_unbounded_hotkey_chord():
 def test_refuse_click_with_keyboard_side_effect():
     with pytest.raises(ValidationError):
         Action(kind="ui.click", automation_id="Save", keys=["ctrl", "a"], expected=expected())
+
+
+def test_refuse_wait_with_text_side_effect():
+    with pytest.raises(ValidationError):
+        Action(kind="wait.condition", text="unexpected", expected=expected())
