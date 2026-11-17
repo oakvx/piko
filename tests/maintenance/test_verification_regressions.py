@@ -42,3 +42,8 @@ def test_verify_enabled_false_against_disabled_element():
 def test_reject_incorrect_enabled_state():
     ok, reason = verify(expected("enabled", False), observe(UIElement(automation_id="Status", enabled=True)))
     assert not ok and "did not match" in reason
+
+
+def test_compare_exact_uia_value():
+    el = UIElement(automation_id="Status", value="Saved")
+    assert verify(expected("text_equals", "Saved"), observe(el))[0]
