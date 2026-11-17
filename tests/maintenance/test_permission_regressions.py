@@ -75,3 +75,10 @@ def test_allow_case_normalized_safe_browser_hotkey():
     permissions = PermissionManager()
     permissions.grant(Grant(executable="demo.exe"))
     permissions.check("demo.exe", "session-1", action("keyboard.hotkey", ["CTRL", "W"]))
+
+
+def test_reject_unsafe_chord_even_under_full_profile():
+    permissions = PermissionManager()
+    permissions.grant(Grant(executable="demo.exe", profile="full"))
+    with pytest.raises(PermissionDenied, match="safe allowlist"):
+        permissions.check("demo.exe", "session-1", action("keyboard.hotkey", ["alt", "tab"]))
