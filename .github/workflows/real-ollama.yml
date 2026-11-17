@@ -16,6 +16,7 @@ on:
       - 'tests/test_ollama_schema_recovery.py'
       - 'tests/real/test_ollama_inference.py'
       - 'tests/real/test_ollama_windows_agent.py'
+      - 'tests/real/test_live_coach_windows.py'
   workflow_dispatch:
 
 permissions:
@@ -89,7 +90,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path acceptance -Force | Out-Null
-          python -m pytest -q -rs --junitxml=acceptance/real-ollama-windows.xml tests/real/test_ollama_inference.py tests/real/test_ollama_windows_agent.py
+          python -m pytest -q -rs --junitxml=acceptance/real-ollama-windows.xml tests/real/test_ollama_inference.py tests/real/test_ollama_windows_agent.py tests/real/test_live_coach_windows.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Collect sanitized model-test evidence
         if: always()
