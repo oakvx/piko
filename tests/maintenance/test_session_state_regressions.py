@@ -40,3 +40,8 @@ def test_allow_pause_during_execution():
 
 def test_allow_verified_completion():
     assert transition(in_state(SessionState.VERIFYING), SessionState.COMPLETED).state == SessionState.COMPLETED
+
+
+def test_prevent_skipping_review_from_idle():
+    with pytest.raises(InvalidTransition):
+        transition(in_state(SessionState.IDLE), SessionState.COMPLETED)
