@@ -37,3 +37,8 @@ def test_verify_enabled_true_against_visible_element():
 def test_verify_enabled_false_against_disabled_element():
     ok, _ = verify(expected("enabled", False), observe(UIElement(automation_id="Status", enabled=False)))
     assert ok
+
+
+def test_reject_incorrect_enabled_state():
+    ok, reason = verify(expected("enabled", False), observe(UIElement(automation_id="Status", enabled=True)))
+    assert not ok and "did not match" in reason
