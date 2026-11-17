@@ -42,3 +42,8 @@ def test_decode_percent_encoded_local_target(tmp_path):
     page(tmp_path, "[Read](docs/a%20b.md)")
     page(tmp_path, "# Read", filename="docs/a b.md")
     assert check_links(tmp_path) == []
+
+
+def test_detect_broken_readme_reference(tmp_path):
+    page(tmp_path, "[Guide](docs/nope.md)")
+    assert check_links(tmp_path) == ["README.md:1: broken local link: docs/nope.md"]
