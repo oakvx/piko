@@ -145,6 +145,7 @@ export default function App() {
   const [installedApplications, setInstalledApplications] = useState<InstalledApplication[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<ApplicationWindow | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerPurpose, setPickerPurpose] = useState<'work' | 'coach'>('work');
   const [pickerFetching, setPickerFetching] = useState(false);
   const [pickingWindow, setPickingWindow] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -167,9 +168,7 @@ export default function App() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillConsent, setSkillConsent] = useState(false);
   const [skillParameterValues, setSkillParameterValues] = useState<Record<string, string>>({});
-  const [coachExecutable, setCoachExecutable] = useState('');
-  const [coachWindows, setCoachWindows] = useState<Array<{ window_handle: number; title: string; process_id: number }>>([]);
-  const [coachWindow, setCoachWindow] = useState('');
+  const [coachTarget, setCoachTarget] = useState<ApplicationWindow | null>(null);
   const [coachConsent, setCoachConsent] = useState(false);
   const [coachOverlay, setCoachOverlay] = useState(false);
   const [coachState, setCoachState] = useState<Awaited<ReturnType<PikoClient['coachStatus']>> | null>(null);
@@ -295,21 +294,21 @@ export default function App() {
     return () => { active = false; window.clearInterval(timer); };
   }, [client, connected]);
 
-  const discoverCoachWindow = () => {
-    if (!client || !coachConsent || !coachExecutable.trim()) return;
-    void attempt('coach-windows', async () => {
-      const found = await client.windows(coachExecutable.trim());
-      setCoachWindows(found);
-      setCoachWindow(found.length === 1 ? String(found[0].window_handle) : '');
-      if (!found.length) throw new Error('No visible window for that game. Start it first.');
-      setNotice(found.length === 1 ? 'Game window identified.' : 'Choose the exact game window.');
-    });
-  };
+  const discoverCoachWindow = () => openApplicationPicker('coach');
 
   const beginCoaching = () => {
-    if (!client || !coachConsent || !coachWindow) return;
+    if (!client || !coachConsent || !coachTarget) return;
     void attempt('coach-start', async () => {
-      setCoachState(await client.startCoach(coachExecutable.trim(), Number(coachWindow)) as Awaited<ReturnType<PikoClient['coachStatus']>>);
+      const candidates = await client.windowCatalog();
+      const selected = candidates.find(w => w.window_handle === coachTarget.window_handle &&
+        w.process_id === coachTarget.process_id &&
+        w.process_started_at === coachTarget.process_started_at &&
+        w.executable === coachTarget.executable);
+      if (!selected) {
+        setCoachTarget(null); setCoachConsent(false);
+        throw new Error('La finestra scelta non è più disponibile. Selezionala nuovamente.');
+      }
+      setCoachState(await client.startCoach(selected.executable, selected.window_handle) as Awaited<ReturnType<PikoClient['coachStatus']>>);
       setNotice('Visual coaching is active. Focus the game; no desktop input is sent.');
     });
   };
@@ -346,17 +345,23 @@ export default function App() {
 
   const closePicker = useCallback(() => setPickerOpen(false), []);
 
-  const openApplicationPicker = () => {
+  const openApplicationPicker = (purpose: 'work' | 'coach' = 'work') => {
     if (!client || !connected) return;
+    setPickerPurpose(purpose);
     setPickerOpen(true);
     void refreshApplicationWindows();
     void client.installedApplications().then(setInstalledApplications).catch(() => setInstalledApplications([]));
   };
 
   const chooseApplicationWindow = (target: ApplicationWindow) => {
-    setSelectedTarget(target);
-    setConsent(false);
-    setReviewed(false);
+    if (pickerPurpose === 'coach') {
+      setCoachTarget(target);
+      setCoachConsent(false);
+    } else {
+      setSelectedTarget(target);
+      setConsent(false);
+      setReviewed(false);
+    }
     setPickerOpen(false);
     setNotice(`Finestra selezionata: ${target.display_name} · ${target.title}`);
   };
@@ -682,7 +687,7 @@ export default function App() {
               <label htmlFor="objective">What should Piko accomplish?</label>
               <textarea id="objective" rows={4} maxLength={500} value={objective} onChange={e => setObjective(e.target.value)} placeholder="For example: enter a name in the demo app, save it and confirm the result." disabled={isBlockedByWork} required />
               <div className="intent-target"><label htmlFor="choose-application">In quale applicazione?</label>
-                <button type="button" id="choose-application" className="visual-target-button" onClick={openApplicationPicker} disabled={isBlockedByWork}>
+                <button type="button" id="choose-application" className="visual-target-button" onClick={() => openApplicationPicker('work')} disabled={isBlockedByWork}>
                   <span className="visual-target-icon" aria-hidden="true">{target ? target.display_name.slice(0, 1).toUpperCase() : '⊞'}</span>
                   <span className="visual-target-description"><strong>{target ? target.display_name : 'Scegli un’applicazione'}</strong>
                     <small>{target ? target.title : 'Mostra le finestre aperte · non serve conoscere il file .exe'}</small></span>
@@ -691,7 +696,7 @@ export default function App() {
                 {!selectedTarget && suggestedExecutables.length === 1 && applicationWindows.filter(w => w.executable === suggestedExecutables[0]).length > 1 &&
                   <p className="target-suggested">Ho trovato più finestre di {applicationWindows.find(w => w.executable === suggestedExecutables[0])?.display_name}. Scegli quella corretta.</p>}
                 {!selectedTarget && suggestedWindow && <p className="target-suggested">Applicazione suggerita dal tuo obiettivo. Puoi cambiarla prima di autorizzare.</p>}
-                <button type="button" className="target-discover" onClick={openApplicationPicker} disabled={isBlockedByWork}>⌕ Mostra le applicazioni</button>
+                <button type="button" className="target-discover" onClick={() => openApplicationPicker('work')} disabled={isBlockedByWork}>⌕ Mostra le applicazioni</button>
               </div>
               <label className="consent-line"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={isBlockedByWork} /><span>I authorize Piko to inspect this selected application in the background and, after I approve the route, activate its exact window to perform actions. Other applications are excluded.</span></label>
               <button className="primary-button" type="submit" disabled={!consent || !objective.trim() || !target || isBlockedByWork || !connected}><span>{busy === 'plan' ? 'Composing route…' : 'Compose a route'}</span><Mark name="arrow" /></button>
@@ -764,7 +769,41 @@ export default function App() {
               })}>History</button>
             </div></div></article>)}</div> : <div className="library-empty"><span className="library-star">✳</span><h3>Nothing here. Yet.</h3><p>Once you save a reviewed route, its Markdown Skill draft will appear here.</p><button type="button" onClick={() => setLens('work')}>Compose a route <Mark name="arrow" size={17} /></button></div>}</section>}
 
-      {lens === 'coach' && <section className="coach-panel"><div className="panel-top"><Kicker index="LIVE">Local vision coaching</Kicker><span className="panel-annotation">NO CLOUD / NO INPUT / NO RECORDINGS</span></div><h2>Your game stays in control.</h2><p>Piko analyzes only the selected game window while it is foreground and offers concise advice. Frames are processed by your local vision model and immediately discarded. Fullscreen-exclusive titles may block capture; borderless/windowed mode is recommended.</p><div className="coach-controls"><label htmlFor="coach-app">Game executable</label><input id="coach-app" placeholder="game.exe" value={coachExecutable} onChange={e => { setCoachExecutable(e.target.value); setCoachWindows([]); setCoachWindow(''); setCoachConsent(false); }} disabled={!!coachState?.active} /><label className="consent-line"><input type="checkbox" checked={coachConsent} onChange={e => setCoachConsent(e.target.checked)} disabled={!!coachState?.active} /><span>I authorize Piko to capture frames of this exact game window for up to 30 minutes, process them exclusively with local Ollama, and stop immediately on request. No clicks or keystrokes will be sent.</span></label><button type="button" className="system-secondary" onClick={discoverCoachWindow} disabled={!coachConsent || !coachExecutable.trim() || !!busy || !!coachState?.active}>Find game windows</button>{coachWindows.length > 0 && <select aria-label="Game window" value={coachWindow} onChange={e => setCoachWindow(e.target.value)} disabled={!!coachState?.active}><option value="">Select a game window</option>{coachWindows.map(w => <option key={w.window_handle} value={w.window_handle}>{w.title || 'Untitled'} · PID {w.process_id}</option>)}</select>}<div className="coach-actions">{coachState?.active ? <><button className="primary-button primary-button--stop" type="button" onClick={endCoaching}>Stop local capture</button><button className="system-secondary" type="button" onClick={toggleCoachOverlay}>Compact always-on-top advice</button></> : <button className="primary-button" type="button" onClick={beginCoaching} disabled={!coachConsent || !coachWindow || !modelSelection.vision || !!busy}>Start visual coaching <Mark name="arrow" /></button>}</div>{!modelSelection.vision && <p className="inline-error">Choose or install a local vision model in System first.</p>}<div className="coach-evidence"><strong>{coachState?.stage || 'Not started'}</strong><span>{coachState?.frames || 0} analyzed frames · Most recent: {coachState?.observed_at ? timeString(coachState.observed_at) : 'None'}</span></div><p className="coach-advice">{coachState?.advice || 'Advice will appear here once the authorized game window is visible in the foreground.'}</p>{coachState?.error && <p className="inline-error">{coachState.error}</p>}</div></section>}
+      {lens === 'coach' && <section className="coach-panel">
+        <div className="panel-top"><Kicker index="LIVE">Local vision coaching</Kicker>
+          <span className="panel-annotation">NO CLOUD / NO INPUT / NO RECORDINGS</span></div>
+        <h2>Your game stays in control.</h2>
+        <p>Piko analyzes only the selected game window while it is foreground. Frames are processed by your local vision model and immediately discarded. Exclusive-fullscreen titles may block capture; borderless/windowed mode is recommended.</p>
+        <div className="coach-controls">
+          <label htmlFor="choose-coach-app">Quale gioco vuoi osservare?</label>
+          <button id="choose-coach-app" type="button" className="visual-target-button"
+            onClick={discoverCoachWindow} disabled={!!coachState?.active || !!busy}>
+            <span className="visual-target-icon" aria-hidden="true">{coachTarget ? coachTarget.display_name.slice(0, 1).toUpperCase() : '⊞'}</span>
+            <span className="visual-target-description"><strong>{coachTarget?.display_name || 'Scegli un gioco o una finestra'}</strong>
+              <small>{coachTarget?.title || 'Elenco finestre aperte · non serve scrivere game.exe'}</small></span>
+            <span className="visual-target-action" aria-hidden="true">Sfoglia →</span>
+          </button>
+          <label className="consent-line"><input type="checkbox" checked={coachConsent}
+            onChange={e => setCoachConsent(e.target.checked)} disabled={!!coachState?.active} />
+            <span>I authorize Piko to capture frames of this exact game window for up to 30 minutes,
+              process them exclusively with local Ollama, and stop immediately on request.
+              No clicks or keystrokes will be sent.</span></label>
+          <div className="coach-actions">
+            {coachState?.active ? <>
+              <button className="primary-button primary-button--stop" type="button" onClick={endCoaching}>Stop local capture</button>
+              <button className="system-secondary" type="button" onClick={toggleCoachOverlay}>Compact always-on-top advice</button>
+            </> : <button className="primary-button" type="button" onClick={beginCoaching}
+              disabled={!coachConsent || !coachTarget || !modelSelection.vision || !!busy}>
+              Start visual coaching <Mark name="arrow" />
+            </button>}
+          </div>
+          {!modelSelection.vision && <p className="inline-error">Choose or install a local vision model in System first.</p>}
+          <div className="coach-evidence"><strong>{coachState?.stage || 'Not started'}</strong>
+            <span>{coachState?.frames || 0} analyzed frames · Most recent: {coachState?.observed_at ? timeString(coachState.observed_at) : 'None'}</span></div>
+          <p className="coach-advice">{coachState?.advice || 'Advice will appear here once the authorized game window is visible in the foreground.'}</p>
+          {coachState?.error && <p className="inline-error">{coachState.error}</p>}
+        </div>
+      </section>}
 
       {lens === 'system' && <div className="system-board"><section className="system-card setup-card"><Kicker index="00">First-run setup</Kicker><h2>Intelligence, installed locally.</h2><p>Piko recommends models using RAM, CPU and detected NVIDIA VRAM. You can change them before downloading. No screenshots or prompts leave your computer.</p>{setupState ? <><div className="system-property"><span>RAM / CPU</span><strong>{setupState.hardware.ram_gb} GB / {setupState.hardware.cpu_cores} cores</strong></div><div className="system-property"><span>GPU VRAM</span><strong>{setupState.hardware.gpu_vram_gb === null ? 'Not detected' : `${setupState.hardware.gpu_vram_gb} GB`}</strong></div><div className="system-property"><span>Free disk</span><strong>{setupState.hardware.free_disk_gb} GB</strong></div><p className="setup-hint">{setupState.hardware.note}</p><label htmlFor="setup-reasoning">Recommended reasoning model</label><select id="setup-reasoning" value={setupReasoning} onChange={e => { setSetupReasoning(e.target.value); setSetupConsent(false); }} disabled={setupState.running}><option value="qwen2.5:1.5b">Qwen 2.5 · 1.5B (light)</option><option value="qwen3:4b">Qwen 3 · 4B (balanced)</option><option value="qwen3:8b">Qwen 3 · 8B (powerful)</option></select><label htmlFor="setup-vision">Local vision model</label><select id="setup-vision" value={setupVision} onChange={e => { setSetupVision(e.target.value); setSetupConsent(false); }} disabled={setupState.running}><option value="none">None (text / UIA only)</option><option value="qwen3-vl:2b-instruct">Qwen 3 VL · 2B (screen analysis)</option></select><label className="consent-line"><input type="checkbox" checked={setupConsent} onChange={e => setSetupConsent(e.target.checked)} disabled={setupState.running} /><span>Install the official signed Ollama runtime if missing, and download the selected models from the Ollama registry. This requires internet access, disk space and may use several GB.</span></label><button type="button" className="primary-button" disabled={!setupConsent || setupState.running || !!busy} onClick={installLocalAI}>{setupState.running ? 'Installing local AI…' : 'Install recommended local AI'} <Mark name="arrow" /></button><p className="setup-hint">Stage: {setupState.stage} {setupState.running ? `· ${setupState.progress}%` : ''} · Estimated model data {setupState.hardware.estimate_download_gb} GB</p>{setupState.error && <p className="inline-error" role="alert">{setupState.error}</p>}{setupState.stage === 'ready' && <p className="setup-ready">Local inference ready: {setupState.reasoning}</p>}</> : <p>Checking local system…</p>}</section><section className="system-card"><Kicker index="01">Runtime</Kicker><h2>Local by design.</h2><div className="system-property"><span>Connection</span><strong>{connected ? 'Loopback / active' : 'Disconnected'}</strong></div><div className="system-property"><span>Transport</span><strong>127.0.0.1:{backendPort}</strong></div><div className="system-property"><span>Host platform</span><strong>{health?.platform || 'Unavailable'}</strong></div><div className="system-property"><span>Active input sessions</span><strong>{health ? health.active_session_count : 'Unknown'}</strong></div><button type="button" className="system-secondary" onClick={() => { setToken(''); setHealth(null); setFrame(null); setSession(null); setConnected(false); }}><Mark name="close" size={16} /> Disconnect this window</button></section>
         <section className="system-card"><Kicker index="02">Inference</Kicker><h2>On-device intelligence.</h2><div className="system-property"><span>Reasoning model</span><strong>{modelSelection.reasoning || 'Not reported'}</strong></div><div className="system-property"><span>Vision model</span><strong>{modelSelection.vision || 'Not configured'}</strong></div><div className="system-property"><span>Ollama discovery</span><strong>{modelError ? 'Unavailable' : models === null ? 'Checking…' : `${models.length} installed`}</strong></div>{modelError && <p className="inline-error">{modelError}</p>}<div className="model-list">{models?.map(model => <div key={model.name}><strong>{model.name}</strong><small>{model.details?.parameter_size || 'Parameter size not reported'}</small></div>)}</div>
@@ -789,7 +828,8 @@ export default function App() {
     </div>
     {pickingWindow && <div className="picker-active" role="status"><span className="picker-active-icon" aria-hidden="true">⊕</span><div><strong>Mirino attivo</strong><small>Clicca una finestra aperta. Piko non registra le digitazioni.</small></div><button type="button" onClick={cancelWindowPicking}>Annulla</button></div>}
     {pickerOpen && <ApplicationPicker windows={applicationWindows} installed={installedApplications}
-      chosen={selectedTarget} goal={objective} fetching={pickerFetching} busy={!!busy}
+      chosen={pickerPurpose === 'coach' ? coachTarget : selectedTarget}
+      goal={pickerPurpose === 'work' ? objective : ''} fetching={pickerFetching} busy={!!busy}
       onSelect={chooseApplicationWindow} onRefresh={() => void refreshApplicationWindows()}
       onPick={startWindowPicking} onLaunch={launchApplication} onClose={closePicker} />}
     <footer className="status-footer"><div><span className="footer-symbol">✳</span><span>PIKO / SHOW ME. I’LL DO IT.</span></div><span className="footer-center">OBSERVE <span>→</span> PLAN <span>→</span> EXECUTE <span>→</span> VERIFY</span><div><span>NO HIDDEN TELEMETRY</span><span className="footer-mark">ALPHA 01</span></div></footer>
