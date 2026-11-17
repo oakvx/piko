@@ -53,3 +53,8 @@ def test_refuse_timeout_below_lower_bound():
 def test_refuse_timeout_above_upper_bound():
     with pytest.raises(ValidationError):
         Action(kind="wait.condition", timeout_seconds=15.01, expected=expected())
+
+
+def test_accept_minimum_bounded_wait():
+    action = Action(kind="wait.condition", timeout_seconds=0.1, expected=expected())
+    assert action.timeout_seconds == 0.1
