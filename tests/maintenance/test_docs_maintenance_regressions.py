@@ -36,3 +36,9 @@ def test_ignore_mailto_documentation_reference(tmp_path):
 def test_ignore_fragment_only_navigation_reference(tmp_path):
     page(tmp_path, "# Setup\n[Setup](#setup)\n")
     assert check_links(tmp_path) == []
+
+
+def test_decode_percent_encoded_local_target(tmp_path):
+    page(tmp_path, "[Read](docs/a%20b.md)")
+    page(tmp_path, "# Read", filename="docs/a b.md")
+    assert check_links(tmp_path) == []
