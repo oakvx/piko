@@ -30,6 +30,30 @@ GitHub-hosted **Windows Server**, not clean Windows 10/11 desktop machines.
 Results must be classified **`real Ollama / hosted Windows`** and not
 misreported as **`Windows 10`** or **`Windows 11`** acceptance.
 
+## Coach vision timing (issue #36)
+
+The 17 November hosted run reported `analyzing-locally` after at least one
+successfully interpreted frame. This was a test assertion race, **not evidence
+of a permanently stalled Coach**: the next scheduled frame can already be
+under analysis when the test inspects the current stage. Success now requires
+a completed frame counter, non-empty observed advice and a sanitized
+observation timestamp; the transient stage may be `watching` or
+`analyzing-locally`.
+
+For independent liveness protection, each local vision request is bounded
+to 90 seconds (or the smaller remaining consent-session budget).
+An expired request transitions to `temporarily-unavailable` with an explicit
+`Local vision inference timed out` error; it does not persist screenshot
+bytes or dispatch input. The status exposes `last_inference_ms` for the last
+successful analysis, without retaining images, text or private prompts.
+
+Portable regressions separately exercise a hanging vision coroutine and a
+second frame in progress. The hosted real-Ollama run must still prove the
+controlled WinForms screenshot can be interpreted on the runner. A failure
+in the reasoning-model test (issue #35) is independent of Coach correctness.
+Neither result certifies real games, fullscreen capture or clean Windows
+10/11 release installations.
+
 ## Separate release blockers
 
 The following still require independent, witnessed tests on clean Windows 10

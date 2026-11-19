@@ -77,9 +77,14 @@ async def test_local_coach_reads_controlled_winforms_with_actual_vision_model():
                     raise AssertionError(f"Local vision inference failed: {state['error']}")
                 await asyncio.sleep(0.25)
         result = coach.status()
-        assert result["stage"] == "watching"
+        # A first completed frame is already evidence of live vision. The
+        # Coach may have immediately begun the NEXT frame, making its current
+        # stage "analyzing-locally" instead of "watching" (a benign race).
+        assert result["stage"] in {"watching", "analyzing-locally"}
         assert result["observed_at"]
         assert isinstance(result["advice"], str) and result["advice"].strip()
+        assert isinstance(result["last_inference_ms"], int)
+        assert result["last_inference_ms"] >= 0
         assert "image_base64" not in result
         assert "screenshot" not in result
         assert "frames" in result and result["frames"] >= 1
