@@ -19,11 +19,11 @@ From the Piko checkout root, open PowerShell:
 
 ~~~powershell
 # Install models explicitly ONLY if not already installed:
-ollama pull qwen2.5:3b
+ollama pull qwen3:4b
 ollama pull qwen3-vl:2b-instruct
 
 # Real Windows GUI + real Ollama reasoning/vision + actual native Agent:
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance\windows-local.ps1 -RunGui -RunRealOllama -ReasoningModel 'qwen2.5:3b' -VisionModel 'qwen3-vl:2b-instruct'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\acceptance\windows-local.ps1 -RunGui -RunRealOllama -ReasoningModel 'qwen3:4b' -VisionModel 'qwen3-vl:2b-instruct'
 ~~~
 
 For native GUI tests only:

@@ -11,7 +11,7 @@ Unrelated commits do not repeatedly download gigabytes of models.
 - Downloads the official Windows Ollama `v0.40.11` CLI archive and verifies its
   pinned SHA-256 **before extraction/execution**.
 - Starts a real local Ollama service at `127.0.0.1:11434`, with cloud inference disabled.
-- Pulls `qwen2.5:3b` for structured action planning and
+- Pulls the setup-catalog-supported `qwen3:4b` for structured action planning and
   `qwen3-vl:2b-instruct` for image interpretation.
 - Calls Piko's real `OllamaProvider` against the actual Ollama server. The
   model must produce a schema-valid plan that clicks the observed Save button;
@@ -73,8 +73,22 @@ unobserved selector still raises `InferenceError`. The ordinary independent
 contract, review, grant and fresh HWND/PID checks remain mandatory; retry
 messages never contain screenshot pixels or password-control identifiers.
 
+### Model compatibility and supported acceptance target
+
+The hosted acceptance workflow previously pinned `qwen2.5:3b`, which is
+**not** in the user-facing `src/piko/setup.py` `MODELS` catalog. Its
+invalid outputs were faithfully rejected; this is an observed model
+compatibility limitation, not an authorization failure or proof of unsafe
+execution. A prior isolated success on the same small model does not certify
+reliable planning. The primary end-to-end CI model now matches the
+setup-recommended `qwen3:4b` reasoning model. The `qwen2.5:3b` outcome
+must remain documented as not production-certified, and the strict no-input
+behavior for malformed output is preserved by regression tests. The
+Windows-hosted UI acceptance still must pass with the supported model,
+rather than merely making the negative-model test non-blocking.
+
 This is a compatibility fix, **not a waiver of the live-model gate**. Close
-issue #35 only if the pinned `qwen2.5:3b` real Windows acceptance run
+issue #35 only if the pinned **supported `qwen3:4b`** real Windows acceptance run
 demonstrates a valid reviewed plan and separately verified WinForms outcome.
 A green offline transport-mock test is not sufficient. Hosted Windows Server
 cannot certify clean Windows 10/11 desktop systems.
