@@ -101,7 +101,7 @@ async def test_vision_summary_is_bounded_and_repaired_with_one_retry():
 
 
 @pytest.mark.asyncio
-async def test_double_invalid_model_output_fails_closed_without_leaking_raw_text():
+async def test_three_invalid_model_outputs_fail_closed_without_leaking_raw_text():
     sensitive = "PRIVATE_SCREEN_TEXT"
     invalid = json.dumps({
         "objective": "Do task", "explanation": sensitive,
@@ -109,14 +109,14 @@ async def test_double_invalid_model_output_fails_closed_without_leaking_raw_text
             "automation_id": "StatusLabel", "property": "exists"}}],
     })
     provider = OllamaProvider("local-text")
-    fake = FakeClient([invalid, invalid])
+    fake = FakeClient([invalid, invalid, invalid])
     provider.client = fake
     try:
         with pytest.raises(InferenceError) as error:
             await provider.plan("Click Save", example_observation())
         assert sensitive not in str(error.value)
         assert "schema validation" in str(error.value)
-        assert len(fake.payloads) == 2
+        assert len(fake.payloads) == 3
     finally:
         await provider.close()
 
@@ -147,15 +147,16 @@ async def test_flat_wire_hint_still_rejects_missing_kind_and_selectors():
         }}],
     })
     provider = OllamaProvider("qwen2.5:3b")
-    fake = FakeClient([payload, payload])
+    fake = FakeClient([payload, payload, payload])
     provider.client = fake
     try:
         with pytest.raises(InferenceError, match="union_tag_not_found"):
             await provider.plan("Click Save", example_observation())
-        assert len(fake.payloads) == 2
-        assert fake.payloads[0]["format"] == GeneratedWirePlan.model_json_schema()
-        assert fake.payloads[1]["format"] == "json"
-        assert "discriminator" not in fake.payloads[0]["format"]["properties"]["actions"]["items"]
+        assert len(fake.payloads) == 3
+        assert fake.payloads[0]["format"] == GeneratedPlan.model_json_schema()
+        assert fake.payloads[1]["format"] == GeneratedPlan.model_json_schema()
+        assert fake.payloads[2]["format"] == GeneratedWirePlan.model_json_schema()
+        assert "discriminator" not in fake.payloads[2]["format"]["properties"]["actions"]["items"]
     finally:
         await provider.close()
 
@@ -171,12 +172,12 @@ async def test_flat_wire_hint_does_not_authorize_extraneous_click_fields():
                      }}],
     })
     provider = OllamaProvider("qwen2.5:3b")
-    fake = FakeClient([invalid, invalid])
+    fake = FakeClient([invalid, invalid, invalid])
     provider.client = fake
     try:
         with pytest.raises(InferenceError, match="schema validation"):
             await provider.plan("Click Save", example_observation())
-        assert len(fake.payloads) == 2
+        assert len(fake.payloads) == 3
     finally:
         await provider.close()
 
@@ -236,8 +237,8 @@ async def test_qwen_json_generation_disables_thinking_and_uses_strict_retry():
         assert len(fake.payloads) == 2
         assert all(payload["think"] is False for payload in fake.payloads)
         assert isinstance(fake.payloads[0]["format"], dict)
-        assert fake.payloads[0]["format"] == GeneratedWirePlan.model_json_schema()
-        assert fake.payloads[1]["format"] == "json"
+        assert fake.payloads[0]["format"] == GeneratedPlan.model_json_schema()
+        assert fake.payloads[1]["format"] == GeneratedPlan.model_json_schema()
         assert all(payload["stream"] is False for payload in fake.payloads)
     finally:
         await provider.close()
@@ -282,7 +283,7 @@ async def test_explicit_firefox_tab_close_is_reviewed_typed_plan_without_model()
 @pytest.mark.asyncio
 async def test_tab_close_intent_never_authorizes_other_apps_or_extra_instructions():
     provider = OllamaProvider("qwen3:4b")
-    fake = FakeClient(['not-json', 'not-json', 'not-json', 'not-json'])
+    fake = FakeClient(['not-json'] * 6)
     provider.client = fake
     try:
         notepad = Observation(
@@ -291,13 +292,13 @@ async def test_tab_close_intent_never_authorizes_other_apps_or_extra_instruction
         )
         with pytest.raises(InferenceError, match="schema validation"):
             await provider.plan("chiudi la scheda", notepad)
-        assert len(fake.payloads) == 2
+        assert len(fake.payloads) == 3
         firefox = notepad.model_copy(update={
             "executable": "firefox.exe", "window_title": "Example - Firefox",
         })
         with pytest.raises(InferenceError, match="schema validation"):
             await provider.plan("non chiudere la scheda", firefox)
-        assert len(fake.payloads) == 4
+        assert len(fake.payloads) == 6
     finally:
         await provider.close()
 
