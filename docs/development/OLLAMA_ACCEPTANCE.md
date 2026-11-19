@@ -38,16 +38,24 @@ passed the three other model/Coach checks but failed when `qwen2.5:3b`
 generated a UI action without the required discriminated `kind` or other
 required fields (`missing`, `union_tag_not_found`). No action was dispatched.
 
-The first Ollama generation attempt now uses a simpler **flat wire JSON
-schema** that explicitly requires `kind` and `expected` but does not use
-the union's JSON-Schema `oneOf`. This wire format is a *generation hint only*:
-the resulting JSON is still parsed by the **original strict discriminated
-`GeneratedPlan` schema**, revalidated as an executable `Plan`, checked
-against freshly observed UIA control identifiers and governed by the normal
-session review and permission gates. Missing selectors, absent kinds, extra
-fields and invented UI targets still fail closed. At most one additional
-JSON-only generation attempt is permitted, and raw model responses are not
-logged or persisted.
+A subsequent run
+([44607333446](https://github.com/oakvx/piko/actions/runs/44607333446))
+showed that flat-first generation can also cause invalid action literals,
+missing fields and extra fields. A previously successful live run
+([43983323739](https://github.com/oakvx/piko/actions/runs/43983323739))
+demonstrates that qwen2.5:3b can comply when given the strict action schema.
+
+The bounded compatibility strategy therefore uses the **original strict
+`GeneratedPlan` JSON schema for the first two attempts** (the second has
+corrective instructions), and only then tries the simpler flat `GeneratedWirePlan`
+schema as a third, final generation hint. All outputs, including the fallback,
+are parsed by the **original strict discriminated `GeneratedPlan` schema**,
+revalidated as an executable `Plan`, checked against freshly observed UIA
+control identifiers and governed by the normal user review and permission
+gates. Missing selectors, absent kinds, extra fields and invented UI targets
+still fail closed. No more than three reasoning-model generation attempts
+are permitted; vision interpretation keeps its separate two-attempt limit.
+Raw model responses and private observations are never logged or persisted.
 
 This is a compatibility fix, **not a waiver of the live-model gate**. Close
 issue #35 only if the pinned `qwen2.5:3b` real Windows acceptance run
