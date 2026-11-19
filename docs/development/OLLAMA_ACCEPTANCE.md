@@ -30,6 +30,31 @@ GitHub-hosted **Windows Server**, not clean Windows 10/11 desktop machines.
 Results must be classified **`real Ollama / hosted Windows`** and not
 misreported as **`Windows 10`** or **`Windows 11`** acceptance.
 
+## Structured plan compatibility (issue #35)
+
+The real hosted Windows run on 19 November 2026
+([run 44582336081](https://github.com/oakvx/piko/actions/runs/44582336081))
+passed the three other model/Coach checks but failed when `qwen2.5:3b`
+generated a UI action without the required discriminated `kind` or other
+required fields (`missing`, `union_tag_not_found`). No action was dispatched.
+
+The first Ollama generation attempt now uses a simpler **flat wire JSON
+schema** that explicitly requires `kind` and `expected` but does not use
+the union's JSON-Schema `oneOf`. This wire format is a *generation hint only*:
+the resulting JSON is still parsed by the **original strict discriminated
+`GeneratedPlan` schema**, revalidated as an executable `Plan`, checked
+against freshly observed UIA control identifiers and governed by the normal
+session review and permission gates. Missing selectors, absent kinds, extra
+fields and invented UI targets still fail closed. At most one additional
+JSON-only generation attempt is permitted, and raw model responses are not
+logged or persisted.
+
+This is a compatibility fix, **not a waiver of the live-model gate**. Close
+issue #35 only if the pinned `qwen2.5:3b` real Windows acceptance run
+demonstrates a valid reviewed plan and separately verified WinForms outcome.
+A green offline transport-mock test is not sufficient. Hosted Windows Server
+cannot certify clean Windows 10/11 desktop systems.
+
 ## Coach vision timing (issue #36)
 
 The 17 November hosted run reported `analyzing-locally` after at least one

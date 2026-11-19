@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from piko.contracts import Observation, UIElement
-from piko.ollama import GeneratedPlan, InferenceError, OllamaProvider
+from piko.ollama import GeneratedPlan, GeneratedWirePlan, InferenceError, OllamaProvider
 
 
 class FakeResponse:
@@ -121,6 +121,66 @@ async def test_double_invalid_model_output_fails_closed_without_leaking_raw_text
         await provider.close()
 
 
+def test_flat_generation_hint_avoids_discriminated_union_without_bypassing_validation():
+    # Small real Qwen models sometimes leave out the oneOf discriminator
+    # when Ollama tries to synthesize a discriminated union directly.
+    wire = GeneratedWirePlan.model_json_schema()
+    actions = wire["properties"]["actions"]["items"]
+    assert "oneOf" not in actions
+    assert "discriminator" not in actions
+    flat = wire["$defs"]["GeneratedWireAction"]
+    assert {"kind", "expected"} <= set(flat["required"])
+    assert "ui.click" in flat["properties"]["kind"]["enum"]
+    # The authoritative executable schema remains discriminated and strict.
+    strict = GeneratedPlan.model_json_schema()
+    assert strict["properties"]["actions"]["items"]["discriminator"]["propertyName"] == "kind"
+
+
+@pytest.mark.asyncio
+async def test_flat_wire_hint_still_rejects_missing_kind_and_selectors():
+    # This mirrors the safe structural failure categories seen in real CI,
+    # without persisting any model output or private UI observations.
+    payload = json.dumps({
+        "objective": "Click Save", "explanation": "One action",
+        "actions": [{"expected": {
+            "automation_id": "StatusLabel", "property": "text_equals", "value": "Done",
+        }}],
+    })
+    provider = OllamaProvider("qwen2.5:3b")
+    fake = FakeClient([payload, payload])
+    provider.client = fake
+    try:
+        with pytest.raises(InferenceError, match="union_tag_not_found"):
+            await provider.plan("Click Save", example_observation())
+        assert len(fake.payloads) == 2
+        assert fake.payloads[0]["format"] == GeneratedWirePlan.model_json_schema()
+        assert fake.payloads[1]["format"] == "json"
+        assert "discriminator" not in fake.payloads[0]["format"]["properties"]["actions"]["items"]
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_flat_wire_hint_does_not_authorize_extraneous_click_fields():
+    invalid = json.dumps({
+        "objective": "Click Save", "explanation": "One action",
+        "actions": [{"kind": "ui.click", "automation_id": "SaveButton",
+                     "text": "surreptitious input", "expected": {
+                         "automation_id": "StatusLabel",
+                         "property": "text_equals", "value": "Done",
+                     }}],
+    })
+    provider = OllamaProvider("qwen2.5:3b")
+    fake = FakeClient([invalid, invalid])
+    provider.client = fake
+    try:
+        with pytest.raises(InferenceError, match="schema validation"):
+            await provider.plan("Click Save", example_observation())
+        assert len(fake.payloads) == 2
+    finally:
+        await provider.close()
+
+
 def test_model_facing_schema_requires_ui_selector_and_forbids_click_text():
     schema = GeneratedPlan.model_json_schema()
     variants = schema["properties"]["actions"]["items"]
@@ -176,6 +236,7 @@ async def test_qwen_json_generation_disables_thinking_and_uses_strict_retry():
         assert len(fake.payloads) == 2
         assert all(payload["think"] is False for payload in fake.payloads)
         assert isinstance(fake.payloads[0]["format"], dict)
+        assert fake.payloads[0]["format"] == GeneratedWirePlan.model_json_schema()
         assert fake.payloads[1]["format"] == "json"
         assert all(payload["stream"] is False for payload in fake.payloads)
     finally:

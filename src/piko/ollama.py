@@ -97,6 +97,27 @@ class GeneratedPlan(StrictModel):
     actions: list[GeneratedAction] = Field(min_length=1, max_length=12)
 
 
+# Small local language models can fail to satisfy a JSON-Schema
+# discriminated oneOf during constrained generation. Present Ollama with a
+# single flat wire schema, but NEVER treat that schema as authorization:
+# _chat still validates every byte against GeneratedPlan's discriminated
+# variants, then plan() independently validates the executable Plan,
+# observed UI selectors and user permission boundaries.
+class GeneratedWireAction(StrictModel):
+    kind: Literal["ui.click", "ui.set_text", "keyboard.hotkey", "wait.condition"]
+    expected: Expectation
+    automation_id: str | None = Field(default=None, max_length=128)
+    text: str | None = Field(default=None, max_length=2000)
+    keys: list[str] = Field(default_factory=list, max_length=3)
+    timeout_seconds: float = Field(default=5, ge=0.1, le=15)
+
+
+class GeneratedWirePlan(StrictModel):
+    objective: str = Field(min_length=1, max_length=500)
+    explanation: str = Field(min_length=1, max_length=2000)
+    actions: list[GeneratedWireAction] = Field(min_length=1, max_length=12)
+
+
 class OllamaProvider:
     def __init__(self, reasoning_model: str, vision_model: str | None = None,
                  base_url: str = "http://127.0.0.1:11434", timeout: float = 90) -> None:
@@ -135,6 +156,9 @@ class OllamaProvider:
             raise InferenceError("Choose a local Ollama reasoning model under System before planning")
         started = time.perf_counter()
         prompt_messages = list(messages)
+        # This is ONLY the generation hint. The authoritative validator below
+        # always remains the requested discriminated GeneratedPlan schema.
+        wire_schema = GeneratedWirePlan if schema is GeneratedPlan else schema
         try:
             for attempt in range(2):
                 response = await self.client.post("/api/chat", json={
@@ -142,10 +166,11 @@ class OllamaProvider:
                     # Qwen3 may spend its token budget on a separate thinking
                     # stream while leaving message.content empty.
                     "think": False,
-                    # Some small models struggle with discriminated oneOf;
-                    # retry with JSON-only generation and the SAME strict
-                    # schema validation before accepting any response.
-                    "format": schema.model_json_schema() if attempt == 0 else "json",
+                    # A flat *generation-only* JSON schema avoids oneOf
+                    # confusion in small models. Parse the result against the
+                    # unchanged discriminated schema; malformed or unsafe
+                    # actions are never accepted or executed.
+                    "format": wire_schema.model_json_schema() if attempt == 0 else "json",
                     "options": {"temperature": 0, "num_predict": max_output_tokens},
                 })
                 response.raise_for_status()
@@ -176,8 +201,12 @@ class OllamaProvider:
                             "automation_id and verifiable property. "
                             "Do not add unnecessary actions. A visual summary must be "
                             "at most 25 words. No explanatory prose or Markdown. "
-                            "The next answer uses JSON-only output formatting, but "
-                            "all fields must still conform exactly to the action contract."
+                            "Every action MUST include an explicit kind string; "
+                            "ui.click requires automation_id, expected.automation_id, "
+                            "expected.property and the required expected.value. "
+                            "Never include keys or text on a click; do not include "
+                            "empty optional fields. The next answer uses JSON-only "
+                            "formatting, but MUST pass the full action contract."
                         ),
                     })
             raise InferenceError("Ollama produced no valid response")
@@ -239,10 +268,12 @@ class OllamaProvider:
             {"role": "system", "content": SYSTEM_POLICY},
             {"role": "user", "content": (
                 "Use the smallest action plan needed to satisfy the objective. "
-                "For ui.click, include automation_id equal to the exact observed "
-                "button ID and OMIT text. For ui.set_text, include the exact "
-                "observed input ID and the requested text. Never use text on "
-                "wait.condition. Each expected property must independently "
+                "Every action object MUST include kind. For ui.click, include "
+                "automation_id equal to the exact observed button ID and OMIT "
+                "text and keys. For ui.set_text, include the exact observed "
+                "input ID and the requested text. Never use text on "
+                "wait.condition. Omit unused optional fields rather than "
+                "filling them with null or empty values. Each expected property must independently "
                 "verify the requested change. If one click suffices, use ONE "
                 "action with the final status expectation. Return JSON only. "
                 "Observed context: " + json.dumps(context)
