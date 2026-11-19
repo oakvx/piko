@@ -57,6 +57,22 @@ still fail closed. No more than three reasoning-model generation attempts
 are permitted; vision interpretation keeps its separate two-attempt limit.
 Raw model responses and private observations are never logged or persisted.
 
+The follow-up pinned run
+([44609216107](https://github.com/oakvx/piko/actions/runs/44609216107))
+passed **three of four real-model tests**, including Coach and synthetic
+reasoning/vision. Its WinForms Agent test produced a structurally valid plan
+but a *fabricated verification selector*, which Piko correctly rejected
+before any action was dispatched. The remaining failure is therefore not a
+JSON-schema bypass; it is a dynamic UIA identity problem.
+
+When a validated plan references an unobserved action/verification control,
+Piko now permits **one additional, bounded planning pass** with only the
+currently observed non-password automation IDs. It does not rewrite model
+output, invent a missing target or execute an invalid plan. A second
+unobserved selector still raises `InferenceError`. The ordinary independent
+contract, review, grant and fresh HWND/PID checks remain mandatory; retry
+messages never contain screenshot pixels or password-control identifiers.
+
 This is a compatibility fix, **not a waiver of the live-model gate**. Close
 issue #35 only if the pinned `qwen2.5:3b` real Windows acceptance run
 demonstrates a valid reviewed plan and separately verified WinForms outcome.
