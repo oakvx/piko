@@ -156,21 +156,31 @@ class OllamaProvider:
             raise InferenceError("Choose a local Ollama reasoning model under System before planning")
         started = time.perf_counter()
         prompt_messages = list(messages)
-        # This is ONLY the generation hint. The authoritative validator below
-        # always remains the requested discriminated GeneratedPlan schema.
-        wire_schema = GeneratedWirePlan if schema is GeneratedPlan else schema
+        is_plan = schema is GeneratedPlan
+        # Keep strict constrained generation first: qwen2.5:3b has passed
+        # this exact mode on real Windows. On repeated failure, try a flat
+        # generation-only schema; never use it as the validation contract.
+        attempts = 3 if is_plan else 2
         try:
-            for attempt in range(2):
+            for attempt in range(attempts):
+                if is_plan:
+                    generation_schema = (
+                        GeneratedPlan if attempt < 2 else GeneratedWirePlan
+                    )
+                    generation_format = generation_schema.model_json_schema()
+                else:
+                    generation_format = (
+                        schema.model_json_schema() if attempt == 0 else "json"
+                    )
                 response = await self.client.post("/api/chat", json={
                     "model": model, "messages": prompt_messages, "stream": False,
                     # Qwen3 may spend its token budget on a separate thinking
                     # stream while leaving message.content empty.
                     "think": False,
-                    # A flat *generation-only* JSON schema avoids oneOf
-                    # confusion in small models. Parse the result against the
-                    # unchanged discriminated schema; malformed or unsafe
-                    # actions are never accepted or executed.
-                    "format": wire_schema.model_json_schema() if attempt == 0 else "json",
+                    # Strict model-facing action union, followed only if
+                    # necessary by a generation-only flat compatibility hint.
+                    # Every answer is validated against unchanged 'schema'.
+                    "format": generation_format,
                     "options": {"temperature": 0, "num_predict": max_output_tokens},
                 })
                 response.raise_for_status()
@@ -184,7 +194,7 @@ class OllamaProvider:
                     # Never execute, heuristically repair or log raw generated
                     # content: it may include untrusted pixels or user data.
                     categories = ", ".join(sorted({e["type"] for e in exc.errors()}))
-                    if attempt:
+                    if attempt == attempts - 1:
                         raise InferenceError(
                             f"Ollama {model} failed strict schema validation after retry "
                             f"({categories}); no actions accepted"
@@ -205,8 +215,8 @@ class OllamaProvider:
                             "ui.click requires automation_id, expected.automation_id, "
                             "expected.property and the required expected.value. "
                             "Never include keys or text on a click; do not include "
-                            "empty optional fields. The next answer uses JSON-only "
-                            "formatting, but MUST pass the full action contract."
+                            "empty optional fields. The next answer MUST pass "
+                            "the complete strict action contract."
                         ),
                     })
             raise InferenceError("Ollama produced no valid response")
