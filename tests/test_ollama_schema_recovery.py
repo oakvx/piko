@@ -172,7 +172,7 @@ async def test_flat_wire_hint_does_not_authorize_extraneous_click_fields():
                      }}],
     })
     provider = OllamaProvider("qwen2.5:3b")
-    fake = FakeClient([invalid, invalid])
+    fake = FakeClient([invalid, invalid, invalid])
     provider.client = fake
     try:
         with pytest.raises(InferenceError, match="schema validation"):
