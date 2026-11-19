@@ -60,6 +60,65 @@ async def test_coach_requires_exact_target_and_does_not_inject_input():
     assert coach.status()["stage"] == "stopped"
 
 
+@pytest.mark.asyncio
+async def test_coach_times_out_stalled_local_inference_without_persisting_pixels():
+    class StalledVision(LocalVision):
+        async def _chat(self, model, messages, schema):
+            await asyncio.Event().wait()
+
+    coach = LocalScreenCoach(
+        ControlledGame(), StalledVision(), inference_timeout_seconds=0.05
+    )
+    try:
+        await coach.start("game.exe", 1234, seconds=30, interval_seconds=3)
+        async with asyncio.timeout(2):
+            while coach.status()["stage"] != "temporarily-unavailable":
+                await asyncio.sleep(0.01)
+        state = coach.status()
+        assert state["active"]
+        assert state["error"] == "Local vision inference timed out"
+        assert state["frames"] == 0
+        assert state["last_inference_ms"] is None
+        assert "image_base64" not in state
+    finally:
+        await coach.stop()
+    assert coach.status()["stage"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_coach_preserves_completed_advice_while_next_frame_is_analyzed():
+    class TwoFrameVision(LocalVision):
+        def __init__(self):
+            super().__init__()
+            self.calls_made = 0
+            self.second_frame_started = asyncio.Event()
+
+        async def _chat(self, model, messages, schema):
+            self.calls_made += 1
+            if self.calls_made == 1:
+                return await super()._chat(model, messages, schema)
+            self.second_frame_started.set()
+            await asyncio.Event().wait()
+
+    provider = TwoFrameVision()
+    coach = LocalScreenCoach(ControlledGame(), provider)
+    try:
+        await coach.start("game.exe", 1234, seconds=30, interval_seconds=3)
+        async with asyncio.timeout(7):
+            await provider.second_frame_started.wait()
+        state = coach.status()
+        # The stage is transient: analyzing the next frame is not a stall.
+        assert state["stage"] == "analyzing-locally"
+        assert state["frames"] == 1
+        assert state["advice"] == "Move left to avoid the obstacle"
+        assert state["observed_at"]
+        assert isinstance(state["last_inference_ms"], int)
+        assert "image_base64" not in state
+    finally:
+        await coach.stop()
+    assert coach.status()["stage"] == "stopped"
+
+
 def test_setup_rejects_unknown_or_cloud_models(monkeypatch):
     from piko import setup as module
     monkeypatch.setattr(module, "hardware_profile", lambda: {
