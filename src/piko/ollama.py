@@ -274,7 +274,7 @@ class OllamaProvider:
         context = {"user_objective": objective, "active_application": observation.executable,
                    "active_window": observation.window_title, "ui_controls": available,
                    "vision_description": scene_summary}
-        result = await self._chat(self.reasoning_model, [
+        plan_messages = [
             {"role": "system", "content": SYSTEM_POLICY},
             {"role": "user", "content": (
                 "Use the smallest action plan needed to satisfy the objective. "
@@ -283,40 +283,72 @@ class OllamaProvider:
                 "text and keys. For ui.set_text, include the exact observed "
                 "input ID and the requested text. Never use text on "
                 "wait.condition. Omit unused optional fields rather than "
-                "filling them with null or empty values. Each expected property must independently "
-                "verify the requested change. If one click suffices, use ONE "
-                "action with the final status expectation. Return JSON only. "
-                "Observed context: " + json.dumps(context)
+                "filling them with null or empty values. Each expected property "
+                "must independently verify the requested change. If one click "
+                "suffices, use ONE action with the final status expectation. "
+                "Return JSON only. Observed context: " + json.dumps(context)
             )},
-        ], GeneratedPlan)
-        assert isinstance(result, GeneratedPlan)
-        # GeneratedPlan prevents missing UI selectors at the JSON-schema layer.
-        # Contract revalidation is authoritative; never execute raw model output.
-        try:
-            result = Plan.model_validate(result.model_dump())
-        except ValidationError as exc:
-            categories = ", ".join(sorted({e["type"] for e in exc.errors()}))
-            raise InferenceError(f"Generated plan violated executable contract ({categories})") from None
-        # Restrict selectors to observed UI IDs; dynamic UI needs re-planning rather than guessing.
-        known = {el.automation_id for el in observation.elements if not el.is_password}
-        for action in result.actions:
-            if action.automation_id and action.automation_id not in known:
-                raise InferenceError("Planner invented a UI selector")
-            if action.expected.automation_id not in known:
-                # @window is a special verification scope, not a UIA control.
-                # It is accepted only for the explicit browser tab-close intent.
-                permitted_window_scope = (
-                    action.expected.automation_id == "@window"
-                    and action.expected.property == "window_title_changed"
-                    and action.kind.value == "keyboard.hotkey"
-                    and [key.casefold() for key in action.keys] == ["ctrl", "w"]
-                    and observation.executable.casefold() in _BROWSER_EXES
-                    and action.expected.value == observation.window_title
-                    and _CLOSE_ACTIVE_TAB.fullmatch(objective.strip()) is not None
-                )
-                if not permitted_window_scope:
-                    raise InferenceError("Planner invented a verification selector")
-        return result
+        ]
+        # The model may return structurally valid JSON while fabricating a
+        # verification target. Such a plan must NEVER reach review/execution.
+        # Allow exactly one corrective replan using ONLY existing observed IDs.
+        known = {
+            el.automation_id for el in observation.elements
+            if el.automation_id and not el.is_password
+        }
+        for selector_attempt in range(2):
+            generated = await self._chat(
+                self.reasoning_model, plan_messages, GeneratedPlan,
+            )
+            assert isinstance(generated, GeneratedPlan)
+            # GeneratedPlan is only model-facing. Revalidate the independent
+            # executable Action contracts before checking UIA identities.
+            try:
+                result = Plan.model_validate(generated.model_dump())
+            except ValidationError as exc:
+                categories = ", ".join(sorted({e["type"] for e in exc.errors()}))
+                raise InferenceError(
+                    f"Generated plan violated executable contract ({categories})"
+                ) from None
+            reason = None
+            for action in result.actions:
+                if action.automation_id and action.automation_id not in known:
+                    reason = "Planner invented a UI selector"
+                    break
+                if action.expected.automation_id not in known:
+                    # @window is allowed ONLY for an explicit, safe browser
+                    # tab-close intent, never for a general model plan.
+                    permitted_window_scope = (
+                        action.expected.automation_id == "@window"
+                        and action.expected.property == "window_title_changed"
+                        and action.kind.value == "keyboard.hotkey"
+                        and [key.casefold() for key in action.keys] == ["ctrl", "w"]
+                        and observation.executable.casefold() in _BROWSER_EXES
+                        and action.expected.value == observation.window_title
+                        and _CLOSE_ACTIVE_TAB.fullmatch(objective.strip()) is not None
+                    )
+                    if not permitted_window_scope:
+                        reason = "Planner invented a verification selector"
+                        break
+            if reason is None:
+                return result
+            if selector_attempt == 1 or not known:
+                # Never repair the model output by inventing a target locally.
+                raise InferenceError(reason)
+            plan_messages.append({
+                "role": "user",
+                "content": (
+                    "Your previous plan used an unobserved UI selector and was "
+                    "REJECTED before any action. Replan using ONLY these exact "
+                    "currently observed automation_id values for both action "
+                    "targets and expected verification targets: "
+                    + json.dumps(sorted(known))
+                    + ". Do not invent, alter or guess IDs. The expected "
+                      "target must independently verify the requested result. "
+                      "Use the smallest safe plan. Return ONLY valid JSON."
+                ),
+            })
+        raise InferenceError("Planner did not produce an observed-target plan")
 
 
 class VisualInterpretation(BaseModel):

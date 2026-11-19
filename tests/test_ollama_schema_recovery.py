@@ -210,11 +210,88 @@ async def test_plan_rejects_hallucinated_expectation_target():
         }],
     })
     provider = OllamaProvider("local-text")
-    fake = FakeClient([payload])
+    fake = FakeClient([payload, payload])
     provider.client = fake
     try:
         with pytest.raises(InferenceError, match="verification selector"):
             await provider.plan("Click Save", example_observation())
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_unobserved_verification_target_replans_once_from_real_ids():
+    invalid = json.dumps({
+        "objective": "Save", "explanation": "Click the observed button",
+        "actions": [{"kind": "ui.click", "automation_id": "SaveButton",
+                     "expected": {"automation_id": "InventedLabel",
+                                  "property": "text_equals", "value": "Done"}}],
+    })
+    valid = json.dumps({
+        "objective": "Save", "explanation": "One reviewed click",
+        "actions": [{"kind": "ui.click", "automation_id": "SaveButton",
+                     "expected": {"automation_id": "StatusLabel",
+                                  "property": "text_equals", "value": "Done"}}],
+    })
+    provider = OllamaProvider("qwen2.5:3b")
+    fake = FakeClient([invalid, valid])
+    provider.client = fake
+    try:
+        plan = await provider.plan("Click SaveButton and verify StatusLabel", example_observation())
+        assert plan.actions[0].expected.automation_id == "StatusLabel"
+        assert len(fake.payloads) == 2
+        correction = fake.payloads[1]["messages"][-1]["content"]
+        assert "REJECTED before any action" in correction
+        assert "SaveButton" in correction and "StatusLabel" in correction
+        assert "InventedLabel" not in correction
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_hallucinated_action_target_replans_once_then_fails_closed():
+    invalid = json.dumps({
+        "objective": "Save", "explanation": "Action target not observed",
+        "actions": [{"kind": "ui.click", "automation_id": "InventedButton",
+                     "expected": {"automation_id": "StatusLabel",
+                                  "property": "text_equals", "value": "Done"}}],
+    })
+    provider = OllamaProvider("qwen2.5:3b")
+    fake = FakeClient([invalid, invalid])
+    provider.client = fake
+    try:
+        with pytest.raises(InferenceError, match="invented a UI selector"):
+            await provider.plan("Click SaveButton", example_observation())
+        assert len(fake.payloads) == 2
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_selector_retry_never_exposes_password_control_ids():
+    invalid = json.dumps({
+        "objective": "Save", "explanation": "Wrong verification target",
+        "actions": [{"kind": "ui.click", "automation_id": "SaveButton",
+                     "expected": {"automation_id": "PrivateControl",
+                                  "property": "exists"}}],
+    })
+    safe = json.dumps({
+        "objective": "Save", "explanation": "Safe verification",
+        "actions": [{"kind": "ui.click", "automation_id": "SaveButton",
+                     "expected": {"automation_id": "StatusLabel",
+                                  "property": "exists"}}],
+    })
+    observation = example_observation()
+    observation.elements.append(UIElement(
+        automation_id="PrivateControl", control_type="Edit", is_password=True,
+    ))
+    provider = OllamaProvider("local-model")
+    fake = FakeClient([invalid, safe])
+    provider.client = fake
+    try:
+        route = await provider.plan("Click SaveButton", observation)
+        assert route.actions[0].expected.automation_id == "StatusLabel"
+        assert "PrivateControl" not in fake.payloads[1]["messages"][-1]["content"]
     finally:
         await provider.close()
 
