@@ -15,12 +15,12 @@ const stateText: Record<AgentState, string> = {
   cancelled: 'Cancelled',
 };
 
-const LENSES: { id: Lens; number: string; title: string; detail: string }[] = [
-  { id: 'work', number: '01', title: 'Workfield', detail: 'Direct' },
-  { id: 'teach', number: '02', title: 'Demonstrate', detail: 'Observe' },
-  { id: 'skills', number: '03', title: 'Library', detail: 'Recall' },
-  { id: 'coach', number: '04', title: 'Coach', detail: 'Live vision' },
-  { id: 'system', number: '05', title: 'System', detail: 'Inspect' },
+const LENSES: { id: Lens; title: string; detail: string }[] = [
+  { id: 'work', title: 'Workfield', detail: 'Direct' },
+  { id: 'teach', title: 'Demonstrate', detail: 'Observe' },
+  { id: 'skills', title: 'Library', detail: 'Recall' },
+  { id: 'coach', title: 'Coach', detail: 'Live vision' },
+  { id: 'system', title: 'System', detail: 'Inspect' },
 ];
 
 function Mark({ name, size = 18 }: { name: 'arrow' | 'stop' | 'pause' | 'play' | 'eye' | 'refresh' | 'plus' | 'check' | 'close' | 'signal' | 'shield' | 'camera' | 'trash'; size?: number }) {
@@ -306,7 +306,7 @@ export default function App() {
         w.executable === coachTarget.executable);
       if (!selected) {
         setCoachTarget(null); setCoachConsent(false);
-        throw new Error('La finestra scelta non è più disponibile. Selezionala nuovamente.');
+        throw new Error('The chosen window is no longer available. Select it again.');
       }
       setCoachState(await client.startCoach(selected.executable, selected.window_handle) as Awaited<ReturnType<PikoClient['coachStatus']>>);
       setNotice('Visual coaching is active. Focus the game; no desktop input is sent.');
@@ -363,14 +363,14 @@ export default function App() {
       setReviewed(false);
     }
     setPickerOpen(false);
-    setNotice(`Finestra selezionata: ${target.display_name} · ${target.title}`);
+    setNotice(`Window selected: ${target.display_name} — ${target.title}`);
   };
 
   const launchApplication = (id: string) => {
     if (!client) return;
     void attempt('launch-app', async () => {
       const result = await client.launchInstalledApp(id);
-      setNotice(`${result.name} avviata. Scegli la finestra dall'elenco quando compare.`);
+      setNotice(`${result.name} launched. Pick its window from the list once it appears.`);
       await refreshApplicationWindows();
     });
   };
@@ -381,7 +381,7 @@ export default function App() {
       await client.startWindowPick();
       setPickerOpen(false);
       setPickingWindow(true);
-      setNotice('Mirino attivo: clicca la finestra desiderata entro 12 secondi.');
+      setNotice('Picker active: click the window you want within 12 seconds.');
     });
   };
 
@@ -405,7 +405,7 @@ export default function App() {
           setPickingWindow(false);
         } else if (state.status === 'expired' || state.status === 'cancelled') {
           setPickingWindow(false);
-          setNotice('Selezione terminata. Puoi riaprire il selettore quando vuoi.');
+          setNotice('Selection ended. Reopen the picker anytime.');
         }
       }).catch(() => { if (active) setPickingWindow(false); });
     };
@@ -478,7 +478,7 @@ export default function App() {
         w.executable === target.executable);
       if (!verified) {
         setSelectedTarget(null); setConsent(false);
-        throw new Error('La finestra selezionata è cambiata o è stata chiusa. Sceglila di nuovo.');
+        throw new Error('The selected window changed or was closed. Choose it again.');
       }
       const created = await client.createSession(objective.trim(), verified.executable, verified);
       setSession(created);
@@ -662,16 +662,16 @@ export default function App() {
   return <div className="app-shell">
     <header className="masthead">
       <div className="brand"><span className="brand-icon"><PikoGlyph state={session?.state ?? 'idle'} compact /></span><span className="logo-text">piko<span>.</span></span><span className="brand-divider" /><span className="brand-subtitle">WORKFIELD / ALPHA</span></div>
-      <nav className="lens-dial" aria-label="Work modes">{LENSES.map(item => <button type="button" key={item.id} aria-current={lens === item.id ? 'page' : undefined} className={`lens-tab${lens === item.id ? ' lens-tab--active' : ''}`} onClick={() => setLens(item.id)}><small>{item.number}</small>{item.title}</button>)}</nav>
+      <nav className="lens-dial" aria-label="Work modes">{LENSES.map(item => <button type="button" key={item.id} aria-current={lens === item.id ? 'page' : undefined} className={`lens-tab${lens === item.id ? ' lens-tab--active' : ''}`} onClick={() => setLens(item.id)}>{item.title}</button>)}</nav>
       <div className="head-actions"><span className={`connection-indicator${connected ? '' : ' connection-indicator--off'}`}><span />{connected ? 'LOCAL CONNECTED' : 'OFFLINE'}</span><button type="button" className="kill-switch" onClick={() => client && invoke('emergency', () => client.emergencyStop(), 'Emergency stop requested for all agent sessions.')} disabled={!client || !connected} title="Release inputs and stop every session"><Mark name="stop" size={15} />EMERGENCY STOP</button></div>
     </header>
 
     <div className="workfield-body">
       <section className="page-heading">
-        <div><Kicker index="P / 001">{LENSES.find(item => item.id === lens)?.detail} / Local system</Kicker>
+        <div><Kicker>{LENSES.find(item => item.id === lens)?.detail} / Local system</Kicker>
           <h1>{lens === 'work' ? <>Give it a goal.<br /><em>See the whole route.</em></> : lens === 'coach' ? <>See the game.<br /><em>Know the next move.</em></> : lens === 'teach' ? <>Show the process.<br /><em>Keep the knowledge.</em></> : lens === 'skills' ? <>Small lessons.<br /><em>Ready to grow.</em></> : <>Everything local.<br /><em>Nothing hidden.</em></>}</h1>
         </div>
-        <div className="heading-right"><span className="heading-cross" aria-hidden="true">✳</span><StatusChip state={connected ? session?.state ?? 'idle' : 'offline'} /><p>Only authorized actions.<br />All outcomes independently verified.</p></div>
+        <div className="heading-right"><StatusChip state={connected ? session?.state ?? 'idle' : 'offline'} /><p>Only authorized actions.<br />All outcomes independently verified.</p></div>
       </section>
 
       {error && <div className="message-banner message-banner--error" role="alert"><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError('')}><Mark name="close" size={15} /></button></div>}
@@ -686,17 +686,17 @@ export default function App() {
             <form onSubmit={startRoute} className="intent-form">
               <label htmlFor="objective">What should Piko accomplish?</label>
               <textarea id="objective" rows={4} maxLength={500} value={objective} onChange={e => setObjective(e.target.value)} placeholder="For example: enter a name in the demo app, save it and confirm the result." disabled={isBlockedByWork} required />
-              <div className="intent-target"><label htmlFor="choose-application">In quale applicazione?</label>
+              <div className="intent-target"><label htmlFor="choose-application">Which application?</label>
                 <button type="button" id="choose-application" className="visual-target-button" onClick={() => openApplicationPicker('work')} disabled={isBlockedByWork}>
                   <span className="visual-target-icon" aria-hidden="true">{target ? target.display_name.slice(0, 1).toUpperCase() : '⊞'}</span>
-                  <span className="visual-target-description"><strong>{target ? target.display_name : 'Scegli un’applicazione'}</strong>
-                    <small>{target ? target.title : 'Mostra le finestre aperte · non serve conoscere il file .exe'}</small></span>
-                  <span className="visual-target-action" aria-hidden="true">{target ? 'Cambia ↗' : 'Sfoglia →'}</span>
+                  <span className="visual-target-description"><strong>{target ? target.display_name : 'Choose an application'}</strong>
+                    <small>{target ? target.title : 'Browse open windows — no need to know the .exe name'}</small></span>
+                  <span className="visual-target-action" aria-hidden="true">{target ? 'Change' : 'Browse'}</span>
                 </button>
                 {!selectedTarget && suggestedExecutables.length === 1 && applicationWindows.filter(w => w.executable === suggestedExecutables[0]).length > 1 &&
-                  <p className="target-suggested">Ho trovato più finestre di {applicationWindows.find(w => w.executable === suggestedExecutables[0])?.display_name}. Scegli quella corretta.</p>}
-                {!selectedTarget && suggestedWindow && <p className="target-suggested">Applicazione suggerita dal tuo obiettivo. Puoi cambiarla prima di autorizzare.</p>}
-                <button type="button" className="target-discover" onClick={() => openApplicationPicker('work')} disabled={isBlockedByWork}>⌕ Mostra le applicazioni</button>
+                  <p className="target-suggested">Found multiple windows for {applicationWindows.find(w => w.executable === suggestedExecutables[0])?.display_name}. Pick the right one.</p>}
+                {!selectedTarget && suggestedWindow && <p className="target-suggested">Suggested from your goal. You can change it before authorizing.</p>}
+                <button type="button" className="target-discover" onClick={() => openApplicationPicker('work')} disabled={isBlockedByWork}>⌕ Browse applications</button>
               </div>
               <label className="consent-line"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={isBlockedByWork} /><span>I authorize Piko to inspect this selected application in the background and, after I approve the route, activate its exact window to perform actions. Other applications are excluded.</span></label>
               <button className="primary-button" type="submit" disabled={!consent || !objective.trim() || !target || isBlockedByWork || !connected}><span>{busy === 'plan' ? 'Composing route…' : 'Compose a route'}</span><Mark name="arrow" /></button>
@@ -729,7 +729,7 @@ export default function App() {
       {lens === 'teach' && <div className="mode-layout teach-layout">
         <div className="teach-stage"><div className="panel-top"><Kicker index="A">Demonstration studio</Kicker><span className={`record-indicator${recording ? ' record-indicator--active' : ''}`}><span />{recording ? 'CAPTURING' : 'NOT RECORDING'}</span></div><div className="teach-visual"><span className="teach-visual-grid" /><div className="teach-persona"><PikoGlyph state={recording ? 'observing' : 'idle'} /></div><div className="teach-wave teach-wave-a" /><div className="teach-wave teach-wave-b" /><span className="teach-mode-caption">{recording ? 'AUTHORIZED WINDOW OBSERVATION' : 'WAITING FOR YOUR DEMONSTRATION'}</span></div>
           <div className="teach-limits"><Kicker>What this version records</Kicker><p>Opt-in foreground screenshots, UIA observations and permitted click/scroll/special-key events on Windows. Raw typed characters are excluded. Inferred steps are tentative until reviewed and tested.</p></div>
-          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p>{demonstration.stopped_reason && <p className="operation-note">Recording ended for safety: {demonstration.stopped_reason.replaceAll('_', ' ')}.</p>}<button type="button" className="system-secondary" disabled={!!busy || recording} onClick={analyzeDemonstration}>Analyze evidence <Mark name="arrow" size={15} /></button></div><button type="button" disabled={!!busy || recording} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); setTeachAnalysis(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
+          {demonstration && <div className="demo-result"><div><Kicker>Last recording</Kicker><h3>{demonstration.frames} captured observations</h3><p>{demonstration.limitations.join('. ')}</p>{demonstration.stopped_reason && <p className="operation-note">Recording ended for safety: {demonstration.stopped_reason.replaceAll('_', ' ')}.</p>}<button type="button" className="system-secondary" disabled={!!busy || recording} onClick={analyzeDemonstration}>Analyze evidence</button></div><button type="button" disabled={!!busy || recording} onClick={() => client && invoke('delete-demo', async () => { await client.deleteTeach(demonstration.id); setDemonstration(null); setTeachAnalysis(null); }, 'Local demonstration deleted.')}><Mark name="trash" size={16} /> Delete</button></div>}
           {teachAnalysis && <section className="skill-seed" aria-label="Teach correction editor">
             <div><Kicker>Evidence → correction</Kicker><h3>{teachAnalysis.input_events} permitted events · {teachAnalysis.steps.length} candidate steps</h3><p>{teachAnalysis.uncertainties.join('. ')}. Unresolved steps must be supplied manually; this is not autonomous learning yet.</p></div>
             <form className="skill-form" onSubmit={saveCorrectedDemonstration}>
@@ -760,7 +760,7 @@ export default function App() {
         <label className="consent-line"><input type="checkbox" checked={skillConsent} disabled={!!busy || !connected} onChange={e => setSkillConsent(e.target.checked)} /><span>I authorize Piko to inspect the foreground application before reviewing a saved Skill. Execution requires a second approval.</span></label>{skills.length ? <div className="library-list">{skills.map(item => <article key={item.name} className="library-card"><div className="library-glyph">✳</div><div><span className="library-state">{item.status.toUpperCase()} / {item.version}</span><h3>{item.name}</h3><p>{item.description}</p><span className="library-info">{item.executable} · {item.actions} actions</span>
             {!!item.parameters?.length && <div className="skill-param-grid" aria-label="Skill input parameters">{item.parameters.map(parameter => <label className="skill-param-control" key={parameter} htmlFor={`skill-param-${item.name}-${parameter}`}><span>{parameter}</span><input id={`skill-param-${item.name}-${parameter}`} type="text" autoComplete="off" maxLength={1000} placeholder={`Value for ${parameter}`} value={skillParameterValues[`${item.name}:${parameter}`] ?? ''} onChange={e => setSkillParameterValues(previous => ({ ...previous, [`${item.name}:${parameter}`]: e.target.value }))} disabled={!!busy || !connected} /></label>)}</div>}
             <div className="execution-controls">
-              <button type="button" className="system-secondary" disabled={!skillConsent || !!busy || !connected || (item.parameters ?? []).some(parameter => !(skillParameterValues[`${item.name}:${parameter}`] ?? ''))} onClick={() => reviewSavedSkill(item.name)}>Review procedure <Mark name="arrow" size={15} /></button>
+              <button type="button" className="system-secondary" disabled={!skillConsent || !!busy || !connected || (item.parameters ?? []).some(parameter => !(skillParameterValues[`${item.name}:${parameter}`] ?? ''))} onClick={() => reviewSavedSkill(item.name)}>Review procedure</button>
               <button type="button" className="system-secondary" disabled={!!busy || !connected} onClick={() => exportSkillArchive(item.name)}>Export ZIP</button>
               <button type="button" className="system-secondary" disabled={!!busy || !connected || item.status !== 'draft'} onClick={() => rollbackSkillDraft(item.name)}>Rollback draft</button>
               <button type="button" className="system-secondary" disabled={!!busy || !connected} onClick={() => client && invoke('skill-history', async () => {
@@ -775,13 +775,13 @@ export default function App() {
         <h2>Your game stays in control.</h2>
         <p>Piko analyzes only the selected game window while it is foreground. Frames are processed by your local vision model and immediately discarded. Exclusive-fullscreen titles may block capture; borderless/windowed mode is recommended.</p>
         <div className="coach-controls">
-          <label htmlFor="choose-coach-app">Quale gioco vuoi osservare?</label>
+          <label htmlFor="choose-coach-app">Which game do you want to watch?</label>
           <button id="choose-coach-app" type="button" className="visual-target-button"
             onClick={discoverCoachWindow} disabled={!!coachState?.active || !!busy}>
             <span className="visual-target-icon" aria-hidden="true">{coachTarget ? coachTarget.display_name.slice(0, 1).toUpperCase() : '⊞'}</span>
-            <span className="visual-target-description"><strong>{coachTarget?.display_name || 'Scegli un gioco o una finestra'}</strong>
-              <small>{coachTarget?.title || 'Elenco finestre aperte · non serve scrivere game.exe'}</small></span>
-            <span className="visual-target-action" aria-hidden="true">Sfoglia →</span>
+            <span className="visual-target-description"><strong>{coachTarget?.display_name || 'Choose a game or window'}</strong>
+              <small>{coachTarget?.title || 'Browse open windows — no need to type game.exe'}</small></span>
+            <span className="visual-target-action" aria-hidden="true">Browse</span>
           </button>
           <label className="consent-line"><input type="checkbox" checked={coachConsent}
             onChange={e => setCoachConsent(e.target.checked)} disabled={!!coachState?.active} />
@@ -826,7 +826,7 @@ export default function App() {
         <section className="system-card system-card--privacy"><Kicker index="03">Safety boundary</Kicker><h2>Never an invisible operator.</h2><p>Capture is opt-in. No background screenshots are streamed by this interface. A plan must be reviewed before desktop actions. No external AI endpoint is configured.</p><div className="privacy-emblem"><Mark name="shield" size={36} /></div>{session && <button type="button" className="system-secondary" disabled={!!busy} onClick={() => client && invoke('revoke', () => client.revoke(session.app_executable), `Permission for ${session.app_executable} revoked.`)}><Mark name="close" size={16} /> Revoke permission: {session.app_executable}</button>}</section>
       </div>}
     </div>
-    {pickingWindow && <div className="picker-active" role="status"><span className="picker-active-icon" aria-hidden="true">⊕</span><div><strong>Mirino attivo</strong><small>Clicca una finestra aperta. Piko non registra le digitazioni.</small></div><button type="button" onClick={cancelWindowPicking}>Annulla</button></div>}
+    {pickingWindow && <div className="picker-active" role="status"><span className="picker-active-icon" aria-hidden="true">⊕</span><div><strong>Picker active</strong><small>Click an open window. Piko never records keystrokes.</small></div><button type="button" onClick={cancelWindowPicking}>Cancel</button></div>}
     {pickerOpen && <ApplicationPicker windows={applicationWindows} installed={installedApplications}
       chosen={pickerPurpose === 'coach' ? coachTarget : selectedTarget}
       goal={pickerPurpose === 'work' ? objective : ''} fetching={pickerFetching} busy={!!busy}
