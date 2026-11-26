@@ -96,26 +96,26 @@ export default function ApplicationPicker({
     <section className="app-picker" role="dialog" aria-modal="true" aria-labelledby="app-picker-title">
       <header className="app-picker-head">
         <div><span className="picker-kicker">PIKO / WINDOW SWITCHER</span>
-          <h2 id="app-picker-title">Dove vuoi lavorare?</h2>
-          <p>Seleziona un'applicazione, non un processo. Piko riconoscerà la finestra autorizzata.</p>
+          <h2 id="app-picker-title">Where do you want to work?</h2>
+          <p>Pick an application, not a process. Piko will recognize the authorized window.</p>
         </div>
-        <button className="picker-close" type="button" onClick={onClose} aria-label="Chiudi selezione">×</button>
+        <button className="picker-close" type="button" onClick={onClose} aria-label="Close picker">×</button>
       </header>
       <div className="picker-search-row">
         <label className="picker-search">
           <span aria-hidden="true">⌕</span>
-          <input ref={inputRef} type="search" aria-label="Cerca applicazioni e finestre"
+          <input ref={inputRef} type="search" aria-label="Search applications and windows"
             value={query} onChange={e => { setQuery(e.target.value); setExpanded(null); }}
-            placeholder="Cerca Firefox, Blocco note, Discord…" />
+            placeholder="Search Firefox, Notepad, Discord…" />
         </label>
         <button className="picker-refresh" onClick={onRefresh} type="button"
-          disabled={fetching || busy} aria-label="Aggiorna elenco">↻</button>
+          disabled={fetching || busy} aria-label="Refresh list">↻</button>
       </div>
-      <nav className="picker-tabs" aria-label="Tipo applicazione">
+      <nav className="picker-tabs" aria-label="Application type">
         <button type="button" className={tab === 'open' ? 'is-active' : ''}
-          onClick={() => { setTab('open'); setQuery(''); }}>Finestre aperte <span>{windows.length}</span></button>
+          onClick={() => { setTab('open'); setQuery(''); }}>Open windows <span>{windows.length}</span></button>
         <button type="button" className={tab === 'installed' ? 'is-active' : ''}
-          onClick={() => { setTab('installed'); setQuery(''); }}>Applicazioni installate <span>{installed.length}</span></button>
+          onClick={() => { setTab('installed'); setQuery(''); }}>Installed applications <span>{installed.length}</span></button>
       </nav>
       <div className="picker-scroll">
         {tab === 'open' && (groups.length ? <div className="picker-groups">
@@ -128,9 +128,9 @@ export default function ApplicationPicker({
                 aria-expanded={open} disabled={busy}>
                 <span className="picker-app-icon" aria-hidden="true">{group.name.charAt(0).toUpperCase()}</span>
                 <span className="picker-app-summary"><strong>{group.name}</strong>
-                  <small>{group.windows.length} {group.windows.length === 1 ? 'finestra aperta' : 'finestre aperte'}</small>
+                  <small>{group.windows.length} {group.windows.length === 1 ? 'open window' : 'open windows'}</small>
                 </span>
-                {suggested.includes(group.exe) && <span className="picker-hint">Suggerita</span>}
+                {suggested.includes(group.exe) && <span className="picker-hint">Suggested</span>}
                 <span className="picker-chevron" aria-hidden="true">{open ? '⌃' : '⌄'}</span>
               </button>
               {open && <div className="picker-window-list">
@@ -138,35 +138,35 @@ export default function ApplicationPicker({
                   className={`picker-window${chosen?.window_handle === item.window_handle ? ' picker-window--selected' : ''}`}
                   key={item.window_handle} disabled={busy} onClick={() => onSelect(item)}>
                   <span className="picker-window-symbol" aria-hidden="true">▣</span>
-                  <span><strong>{item.title}</strong><small>{item.is_foreground ? 'In primo piano' : 'Pronta in background'}</small></span>
+                  <span><strong>{item.title}</strong><small>{item.is_foreground ? 'In the foreground' : 'Ready in background'}</small></span>
                   <span className="picker-select-mark" aria-hidden="true">{chosen?.window_handle === item.window_handle ? '✓' : '→'}</span>
                 </button>)}
               </div>}
             </article>;
           })}
-        </div> : <div className="picker-empty"><strong>Nessuna finestra corrispondente.</strong>
-          <p>Avvia un'applicazione oppure scegli tra quelle installate.</p>
-          <button type="button" onClick={() => { setTab('installed'); setQuery(''); }}>Cerca tra le installate</button>
+        </div> : <div className="picker-empty"><strong>No matching window.</strong>
+          <p>Launch an application, or pick one from the installed list.</p>
+          <button type="button" onClick={() => { setTab('installed'); setQuery(''); }}>Browse installed apps</button>
         </div>)}
         {tab === 'installed' && (installedFiltered.length ? <div className="picker-installed">
           {installedFiltered.map(app => <div className="picker-install-row" key={app.id}>
             <span className="picker-app-icon" aria-hidden="true">{app.name.charAt(0).toUpperCase()}</span>
-            <span className="picker-app-summary"><strong>{app.name}</strong><small>Menu Start di Windows</small></span>
+            <span className="picker-app-summary"><strong>{app.name}</strong><small>Windows Start menu</small></span>
             {confirmLaunch === app.id ? <div className="picker-launch-confirm">
-              <span>Aprire {app.name}?</span>
-              <button type="button" disabled={busy} onClick={() => { setConfirmLaunch(null); onLaunch(app.id); }}>Conferma</button>
-              <button type="button" disabled={busy} onClick={() => setConfirmLaunch(null)}>Annulla</button>
+              <span>Open {app.name}?</span>
+              <button type="button" disabled={busy} onClick={() => { setConfirmLaunch(null); onLaunch(app.id); }}>Confirm</button>
+              <button type="button" disabled={busy} onClick={() => setConfirmLaunch(null)}>Cancel</button>
             </div> : <button type="button" className="picker-launch" disabled={busy}
-              onClick={() => setConfirmLaunch(app.id)}>Apri</button>}
+              onClick={() => setConfirmLaunch(app.id)}>Open</button>}
           </div>)}
-        </div> : <div className="picker-empty"><strong>Nessuna app trovata.</strong>
-          <p>L'elenco include i collegamenti del menu Start. Alcune app portatili potrebbero non comparire.</p>
+        </div> : <div className="picker-empty"><strong>No app found.</strong>
+          <p>This list includes Start menu shortcuts. Some portable apps may not appear.</p>
         </div>)}
       </div>
       <footer className="picker-footer">
-        <div className="picker-privacy">Solo nomi e titoli delle finestre locali. Nessuno screenshot viene acquisito.</div>
+        <div className="picker-privacy">Only local window names and titles. No screenshot is captured.</div>
         <button type="button" className="picker-aim" onClick={onPick} disabled={busy}>
-          <span aria-hidden="true">⊕</span> Seleziona cliccando una finestra
+          <span aria-hidden="true">⊕</span> Click a window to select it
         </button>
       </footer>
     </section>

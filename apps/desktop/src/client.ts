@@ -154,13 +154,13 @@ export class PikoClient {
       if (current.state === 'waiting_for_user') return current;
       if (current.state === 'failed' || current.state === 'cancelled') {
         throw new Error(current.error ||
-          'La pianificazione locale non è riuscita. Nessuna azione è stata eseguita.');
+          'Local planning failed. No action was taken.');
       }
       if (current.state === 'executing' || current.state === 'completed') {
-        throw new Error('La sessione è già stata eseguita senza una nuova approvazione.');
+        throw new Error('This session already ran without a new approval.');
       }
     }
-    throw new Error('Il modello locale sta impiegando troppo tempo. La pianificazione potrebbe essere ancora in corso: controlla la sessione prima di riprovare.');
+    throw new Error('The local model is taking too long. Planning may still be running — check the session before retrying.');
   }
   execute(id: string) { return this.request(`/sessions/${id}/execute`, { method: 'POST' }); }
   pause(id: string) { return this.request(`/sessions/${id}/pause`, { method: 'POST' }); }
